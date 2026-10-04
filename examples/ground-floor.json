@@ -1,10 +1,9 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "floors": [
     {
       "id": "eg",
       "name": "Erdgeschoss",
-      "background": "/local/heizlast-ha/ground-floor.png",
       "canvas": { "width": 1200, "height": 800 },
       "rooms": [
         {

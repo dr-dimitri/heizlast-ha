@@ -3,7 +3,7 @@ import { HeizlastHaCard, HeizlastHaPanel } from "../src/card";
 import { type HomeAssistant } from "../src/types";
 
 async function mount(admin = true) {
-  const callWS = vi.fn(async () => ({ revision: 0, plan: null, bindings: {}, images: [] }));
+  const callWS = vi.fn(async () => ({ revision: 0, plan: null, bindings: {} }));
   const hass = { user: { is_admin: admin }, states: {}, callWS } as unknown as HomeAssistant;
   const panel = new HeizlastHaPanel();
   panel.hass = hass;
@@ -26,7 +26,8 @@ describe("automatically registered sidebar dashboard", () => {
     expect(card.hass).toBe(hass);
     expect(callWS).toHaveBeenCalledExactlyOnceWith({ type: "heizlast_ha/get_project" });
     expect(card.shadowRoot!.querySelector('input[type="file"]')).not.toBeNull();
-    expect(card.shadowRoot!.textContent).toContain("Grundriss");
+    expect(card.shadowRoot!.textContent).toContain("LLM-Prompt vorbereiten");
+    expect(card.shadowRoot!.querySelector('input[aria-label="Grundrissbild hochladen"]')).toBeNull();
   });
 
   it("forwards mobile navigation and live updates while preserving input", async () => {

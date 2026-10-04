@@ -1,13 +1,14 @@
 # heizlast-ha
 
-Home-Assistant-Integration mit einer interaktiven Grundrisskarte. Version **0.5.0**
-stellt das Dashboard **Heizlast HA** automatisch in der HA-Seitenleiste bereit.
-Der Prototyp aus [Issue #1](https://github.com/dr-dimitri/heizlast-ha/issues/1)
-enthält PNG-/JPEG-Grundrisse, JSON-Raumflächen, Korrekturmodus, mehrere Etagen,
-zugeordnete Temperatursensoren und einen kopierbaren Prompt für ein externes LLM.
+Home-Assistant-Integration mit einer interaktiven digitalen Grundrisskarte.
+Version **0.6.0** erzeugt einen kopierbaren Prompt für ein externes LLM ohne
+Bild-Upload. Der importierte digitale Grundriss enthält Raumkonturen, Namen und
+Zeichenfläche vollständig; der ursprüngliche Plan wird danach nicht benötigt.
+Das Dashboard **Heizlast HA** steht automatisch in der HA-Seitenleiste bereit.
+Mehrere Etagen, Korrekturmodus und zugeordnete Temperatursensoren sind enthalten.
 
-Die Integration speichert Bilder, Grundrisse und Sensorzuordnungen in Home
-Assistant. Temperaturwerte kommen direkt von den vorhandenen Sensoren. Eine
+Die Integration speichert Grundriss-JSON und Sensorzuordnungen in Home Assistant.
+Temperaturwerte kommen direkt von den vorhandenen Sensoren. Eine
 Heizlastberechnung und Heizungssteuerung folgen in späteren Projektphasen.
 
 ## Installation über HACS
@@ -22,8 +23,8 @@ Heizlast HA wird als **benutzerdefiniertes Repository** installiert:
 4. Home Assistant neu starten. Unter **Einstellungen → Geräte & Dienste →
    Integration hinzufügen** nach **Heizlast HA** suchen und hinzufügen.
 5. Die Browserseite neu laden und links **Heizlast HA** öffnen. Das Dashboard
-   zeigt direkt die Grundrisseinrichtung zum Hochladen eines Plans, Erstellen
-   des LLM-Prompts und Zuordnen von Temperatursensoren. Es ist auch über den
+   zeigt direkt die Einrichtung zum Erstellen des LLM-Prompts, Importieren
+   der JSON-Antwort und Zuordnen von Temperatursensoren. Es ist auch über den
    Öffnen-Link der Integration unter **Geräte & Dienste** erreichbar.
 
 Das eigene Dashboard wird als Home-Assistant-Panel bereitgestellt und benötigt
@@ -45,7 +46,7 @@ angelegter Ressourceneintrag sind nicht erforderlich. Dies funktioniert mit
 über die Oberfläche verwalteten Dashboards und YAML-Dashboards.
 
 Updates ebenfalls über HACS herunterladen, anschließend Home Assistant neu
-starten und die Browserseite neu laden. Grundrisse, Bilder und Sensorzuordnungen
+starten und die Browserseite neu laden. Grundrisse und Sensorzuordnungen
 liegen weiterhin in `.storage` und bleiben beim Update erhalten.
 Auch bei bereits eingerichteten Integrationen erscheint das eigene Dashboard
 nach dem Update automatisch in der Seitenleiste. Normale Benutzer können die
@@ -66,7 +67,7 @@ erneut angezeigt. Die Bestätigung gilt für die konkrete Dashboard-Datei; bei
 der nächsten Änderung erscheint eine neue Meldung. Eine Erstinstallation sowie
 Updates mit unveränderter Karte erzeugen keine Reparatur. Beim ersten Wechsel
 von einer älteren Version ohne diese Erkennung erscheint einmalig die Meldung.
-Grundrisse, Bilder und Sensorzuordnungen bleiben unverändert.
+Grundrisse und Sensorzuordnungen bleiben unverändert.
 
 Bei einem Wechsel von Version 0.2.0 zuerst den bisherigen Ressourceneintrag
 `/local/heizlast-ha/heizlast-ha-card.js?...` aus den Dashboard-Ressourcen bzw.
@@ -92,38 +93,32 @@ Beispiele; daraus nur den Inhalt von `custom_components/heizlast_ha/` nach
 
 ## Vom Grundriss zur Temperaturanzeige
 
-1. Als Administrator ein PNG oder JPEG über die Karte hochladen und Etagen-ID
-   sowie Etagenname festlegen. Die Karte ermittelt die Bildgröße. Dateien dürfen
-   höchstens **2 MiB**, **8192 Pixel je Dimension** und **24 Millionen Pixel**
-   insgesamt enthalten. PDF-Seiten vorher unverändert als Bild exportieren.
-2. **LLM-Prompt anzeigen** öffnen und **Prompt kopieren** verwenden. Ist die
-   Zwischenablage nicht verfügbar, den Text im Dialog manuell kopieren. Prompt
-   und das Bild über **Grundriss herunterladen** aus dem Dialog
-   gemeinsam an das gewünschte LLM übergeben. Der Upload normalisiert die
-   EXIF-Ausrichtung von Fotos; der Download entspricht daher genau den im Prompt
-   angegebenen Bildkoordinaten.
+1. Als Administrator Etagen-ID und Etagenname festlegen und **LLM-Prompt
+   anzeigen** öffnen. Ein Bild-Upload in die Integration ist nicht erforderlich.
+2. **Prompt kopieren** verwenden. Ist die Zwischenablage nicht verfügbar, den
+   Text im Dialog manuell kopieren. Prompt und ursprünglichen Grundriss direkt
+   an das gewünschte LLM übergeben, etwa als Bild, Screenshot oder PDF.
    Die Integration selbst sendet keine LLM-Anfragen.
-3. Die Antwort als JSON-Datei laden oder in das Importfeld einfügen. Der Import
-   prüft das Schema, Bildreferenzen, Bildgrößen, eindeutige IDs und Raumgeometrie.
-   Ungültige Daten überschreiben die bisherige Konfiguration nicht.
-4. Die Vorschau über dem Originalplan prüfen und ausdrücklich übernehmen.
-   Jede enthaltene Etage bleibt erhalten und ist auswählbar. Für mehrere Etagen
-   vorher alle zugehörigen Bilder hochladen und die einzelnen Etagenobjekte
-   gemeinsam in `floors` aufnehmen.
+3. Die Antwort als JSON-Datei laden oder in das Importfeld einfügen. Das LLM
+   liefert eine eigenständige Zeichenfläche und die Raumkonturen in deren
+   Koordinaten. Der Import prüft Schema, eindeutige IDs, Koordinatengrenzen und
+   Raumgeometrie. Ungültige Daten überschreiben die bisherige Konfiguration nicht.
+4. Raumkonturen, Namen und Anordnung in der Vorschau prüfen und ausdrücklich
+   übernehmen. Jede enthaltene Etage bleibt erhalten und ist auswählbar.
+   Für mehrere Etagen die jeweiligen Etagenobjekte gemeinsam in `floors`
+   aufnehmen und über alle Etagen eindeutige IDs verwenden.
 5. Einen Raum anklicken. Im Korrekturmodus können Raumnamen und Eckpunkte
-   geändert, Punkte hinzugefügt oder entfernt werden. Änderungen speichern;
-   eine visuell unpassende, aber formal gültige LLM-Antwort lässt sich so
-   korrigieren.
+   geändert, Punkte hinzugefügt oder entfernt werden. Änderungen speichern.
+   Anzeige und Korrekturen benötigen ausschließlich die importierten Daten.
 6. Dem Raum einen oder mehrere Home-Assistant-Temperatursensoren zuordnen. Jeder
    Sensor wird mit seinem aktuellen Wert und seiner Einheit angezeigt. Es
    erfolgt keine ungeprüfte Mittelung unterschiedlicher Einheiten. Nicht
    verfügbare und entfernte Sensoren werden entsprechend gekennzeichnet.
 
-**Beispiel laden** stellt einen handgeprüften Grundriss mit Wohnzimmer, Küche,
-Flur und Bad als Importvorschau bereit. Die Beispieldateien liegen in
-[`examples/`](examples/README.md); die Schaltfläche setzt die Bildreferenz passend
-zum Upload ein. Beim manuellen Beispielimport `background` durch die nach dem
-Upload angezeigte Bildreferenz ersetzen.
+**Beispiel laden** stellt einen handgeprüften digitalen Grundriss mit Wohnzimmer,
+Küche, Flur und Bad als Importvorschau bereit. Das Beispiel funktioniert ohne
+Bild und ist auch direkt aus [`examples/ground-floor.json`](examples/ground-floor.json)
+importierbar.
 
 Sensorzuordnungen werden anhand stabiler Raum-IDs getrennt vom Grundriss
 gespeichert. Ein Reimport mit gleichen IDs erhält sie. Entfernte Räume werden
@@ -137,21 +132,25 @@ Administratorrechte.
 
 [`schemas/floorplan-v1.schema.json`](schemas/floorplan-v1.schema.json) ist der
 verbindliche Vertrag. Dashboard-Import und LLM-Prompt verwenden dieselbe
-Formatdefinition; eine bytegleiche Kopie liegt im Integrationspaket. Das Format
+Formatdefinition; eine bytegleiche Kopie liegt im Integrationspaket. Version
+`1.1` enthält keine Bildreferenzen; das frühere bildbasierte Format `1.0` wird
+nicht mehr verwendet und ist nicht importierbar. Das Format
 erlaubt bis zu 32 Etagen, 500 Räume pro Etage und 500 Eckpunkte pro Raum.
 
-Koordinaten beziehen sich auf das gespeicherte, ausgerichtete Bild: Ursprung links
-oben, x nach rechts und y nach unten. Raumflächen sind implizit geschlossene
-Polygone; den ersten Punkt nicht am Ende wiederholen. Selbstüberschneidungen,
-Nullflächen, Koordinaten außerhalb des Bildes und flächige Überschneidungen
-verschiedener Räume werden abgelehnt. Bildkoordinaten ergeben keinen metrischen
-Maßstab: `area_m2` bleibt ohne bestätigte Flächenangabe `null`.
+Koordinaten beziehen sich auf die im JSON definierte Zeichenfläche: Ursprung
+links oben, x nach rechts und y nach unten. Der Prompt lässt das LLM die längere
+Seite auf 1000 Einheiten setzen und das Seitenverhältnis des Plans erhalten.
+Raumflächen sind implizit geschlossene Polygone; den ersten Punkt nicht am Ende
+wiederholen. Selbstüberschneidungen, Nullflächen, Koordinaten außerhalb der
+Zeichenfläche und flächige Überschneidungen verschiedener Räume werden abgelehnt.
+Die Koordinaten ergeben keinen metrischen Maßstab: `area_m2` bleibt ohne
+bestätigte Flächenangabe `null`.
 
-Der Projektzustand wird über Home Assistants Storage-Helfer gespeichert,
-Bilddateien liegen ebenfalls im Konfigurationsverzeichnis unter `.storage`.
-Sie werden über einen authentifizierten Bildendpunkt mit signierten URLs
-angezeigt. Das Konfigurationsverzeichnis einschließlich `.storage` sichern;
-keine Browserdaten als Ersatz für die Home-Assistant-Konfiguration betrachten.
+Der Projektzustand wird über Home Assistants Storage-Helfer im
+Konfigurationsverzeichnis unter `.storage` gespeichert. Es werden keine
+Grundrissbilder gespeichert oder nachgeladen. Das Konfigurationsverzeichnis
+einschließlich `.storage` sichern; keine Browserdaten als Ersatz für die
+Home-Assistant-Konfiguration betrachten.
 
 ## Entwicklung und CI
 

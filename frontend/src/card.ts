@@ -2,7 +2,7 @@ import { LitElement, css, html, svg, nothing, type PropertyValues } from "lit";
 import { styles } from "./styles";
 import { buildPrompt, copyPrompt, promptRequirements } from "./prompt";
 import { parseImport, reconcileBindings, validatePlan } from "./validation";
-import { type CardConfig, type Floor, type Floorplan, type HomeAssistant, type ImageMetadata, type Point, type Project, type Room, bindingFor, clone, temperatureLabel, temperatureSensors } from "./types";
+import { type CardConfig, type Floor, type Floorplan, type HomeAssistant, type Point, type Project, type Room, bindingFor, clone, temperatureLabel, temperatureSensors } from "./types";
 
 const houseIcon = svg`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m3 10 9-7 9 7M5 9v11h14V9M9 20v-7h6v7"/><path d="M15 4V2h3v4"/></svg>`;
 const copyIcon = svg`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M15 8V3H3v13h5"/></svg>`;
@@ -22,10 +22,10 @@ export class HeizlastHaCard extends LitElement {
   static styles = styles;
   static properties = {
     hass: { attribute: false }, config: { state: true }, project: { state: true }, draft: { state: true }, bindings: { state: true },
-    selectedFloor: { state: true }, selectedRoom: { state: true }, selectedImage: { state: true }, floorId: { state: true }, floorName: { state: true },
+    selectedFloor: { state: true }, selectedRoom: { state: true }, floorId: { state: true }, floorName: { state: true },
     showSetup: { state: true }, editing: { state: true }, imported: { state: true }, dirty: { state: true }, jsonText: { state: true },
     errors: { state: true }, notice: { state: true }, loading: { state: true }, busy: { state: true }, showPrompt: { state: true }, copied: { state: true },
-    signedImages: { state: true }, confirmRemoved: { state: true }, conflict: { state: true },
+    confirmRemoved: { state: true }, conflict: { state: true },
   };
 
   hass?: HomeAssistant;
@@ -35,7 +35,6 @@ export class HeizlastHaCard extends LitElement {
   private bindings: Record<string, string[]> = {};
   private selectedFloor = "";
   private selectedRoom = "";
-  private selectedImage = "";
   private floorId = "eg";
   private floorName = "Erdgeschoss";
   private showSetup = true;
@@ -49,14 +48,9 @@ export class HeizlastHaCard extends LitElement {
   private busy = false;
   private showPrompt = false;
   private copied = "";
-  private signedImages: Record<string, string> = {};
   private confirmRemoved: string[] | null = null;
   private conflict = false;
   private loadStarted = false;
-  private signing = new Set<string>();
-  private signFailed = new Set<string>();
-  private signedExpires: Record<string, number> = {};
-  private imageRetries = new Set<string>();
   private drag: { index: number; room: string; pointer: number } | null = null;
   private returnFocus?: HTMLElement;
 
@@ -70,44 +64,20 @@ export class HeizlastHaCard extends LitElement {
   private get admin(): boolean { return this.hass?.user?.is_admin === true; }
   private get floor(): Floor | undefined { return this.draft?.floors.find((floor) => floor.id === this.selectedFloor) ?? this.draft?.floors[0]; }
   private get room(): Room | undefined { return this.floor?.rooms.find((room) => room.id === this.selectedRoom); }
-  private get image(): ImageMetadata | undefined { return this.project?.images.find((image) => image.background === this.selectedImage); }
 
   protected updated(changed: PropertyValues): void {
     if (changed.has("hass") && this.hass && !this.loadStarted) {
       this.loadStarted = true;
       void this.loadProject();
     }
-    const backgrounds = new Set([...(this.draft?.floors.map((floor) => floor.background) ?? []), this.selectedImage].filter(Boolean));
-    for (const background of backgrounds) if ((!this.signedImages[background] || this.signedExpires[background] < Date.now()) && !this.signing.has(background) && !this.signFailed.has(background)) void this.signImage(background);
     if (changed.has("showPrompt") && this.showPrompt) void this.updateComplete.then(() => this.renderRoot.querySelector<HTMLElement>(".dialog button")?.focus());
     if (changed.has("confirmRemoved") && this.confirmRemoved) void this.updateComplete.then(() => this.renderRoot.querySelector<HTMLElement>(".dialog button")?.focus());
-  }
-
-  private async signImage(background: string): Promise<void> {
-    if (!this.hass) return;
-    this.signing.add(background);
-    try {
-      const result = await this.hass.callWS<{ path: string }>({ type: "auth/sign_path", path: background, expires: 3600 });
-      this.signedExpires[background] = Date.now() + 3500 * 1000;
-      this.signedImages = { ...this.signedImages, [background]: result.path };
-    } catch { this.signFailed.add(background); this.errors = ["Das Grundrissbild konnte nicht geladen werden. Prüfen Sie die Verbindung und laden Sie das Projekt erneut."]; }
-    finally { this.signing.delete(background); }
-  }
-
-  private imageError(background: string): void {
-    if (!this.imageRetries.has(background) && !this.signing.has(background)) {
-      this.imageRetries.add(background);
-      void this.signImage(background);
-    } else this.errors = ["Das Grundrissbild konnte nicht angezeigt werden. Bitte das Projekt erneut laden oder das Bild neu hochladen."];
   }
 
   private async loadProject(): Promise<void> {
     if (!this.hass) return;
     this.loading = true;
     this.errors = [];
-    this.signFailed.clear();
-    this.imageRetries.clear();
-    this.signedImages = {};
     try {
       const project = await this.hass.callWS<Project>({ type: "heizlast_ha/get_project" });
       this.project = project;
@@ -127,53 +97,22 @@ export class HeizlastHaCard extends LitElement {
     this.editing = false;
     this.confirmRemoved = null;
     if (this.draft?.floors.length) this.chooseFloor(this.draft.floors[0].id);
-    else { this.selectedFloor = ""; this.selectedRoom = ""; this.selectedImage = this.project?.images.at(-1)?.background ?? ""; }
+    else { this.selectedFloor = ""; this.selectedRoom = ""; }
   }
 
   private chooseFloor(id: string): void {
     this.selectedFloor = id;
     const floor = this.draft?.floors.find((floor) => floor.id === id);
     this.selectedRoom = floor?.rooms[0]?.id ?? "";
-    if (floor) { this.selectedImage = floor.background; this.floorId = floor.id; this.floorName = floor.name; }
+    if (floor) { this.floorId = floor.id; this.floorName = floor.name; }
     this.editing = false;
-  }
-
-  private async upload(file?: File): Promise<ImageMetadata | undefined> {
-    if (!file || !this.hass || !this.admin || !this.project || this.busy) return;
-    this.errors = [];
-    if (file.size > 2 * 1024 * 1024) { this.errors = ["Das Bild darf höchstens 2 MiB groß sein."]; return; }
-    if (!["image/png", "image/jpeg"].includes(file.type)) { this.errors = ["Bitte ein PNG- oder JPEG-Bild auswählen. PDF-Seiten vorher als Bild exportieren."]; return; }
-    this.busy = true;
-    try {
-      const data = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result).split(",")[1]);
-        reader.onerror = () => reject(new Error("Bilddatei konnte nicht gelesen werden."));
-        reader.readAsDataURL(file);
-      });
-      const image = await this.hass.callWS<ImageMetadata>({ type: "heizlast_ha/upload_image", name: file.name, data });
-      this.project = { ...this.project, images: [...this.project.images.filter((candidate) => candidate.background !== image.background), image] };
-      this.selectedImage = image.background;
-      this.notice = `„${image.name}“ hochgeladen: ${image.width} × ${image.height} Pixel. Den Prompt mit genau diesem Bild verwenden.`;
-      return image;
-    } catch (error) { this.errors = [`Bild konnte nicht hochgeladen werden. ${failureMessage(error)}`]; }
-    finally { this.busy = false; }
   }
 
   private async sample(): Promise<void> {
     if (!this.admin || this.busy) return;
     try {
-      // These repository assets are embedded at build time and need no external host.
-      const [{ default: samplePlan }, { default: imageUrl }] = await Promise.all([
-        import("../../examples/ground-floor.json"), import("../../examples/ground-floor.png?inline"),
-      ]);
-      const response = await fetch(imageUrl);
-      const file = new File([await response.blob()], "ground-floor.png", { type: "image/png" });
-      const image = await this.upload(file);
-      if (!image) return;
-      const plan = clone(samplePlan) as Floorplan;
-      plan.floors[0].background = image.background;
-      this.jsonText = JSON.stringify(plan, null, 2);
+      const { default: samplePlan } = await import("../../examples/ground-floor.json");
+      this.jsonText = JSON.stringify(samplePlan, null, 2);
       this.checkImport();
     } catch (error) { this.errors = [`Beispiel konnte nicht geladen werden. ${failureMessage(error)}`]; }
   }
@@ -187,13 +126,8 @@ export class HeizlastHaCard extends LitElement {
 
   private checkImport(): void {
     if (!this.admin || !this.project || this.busy) return;
-    const result = parseImport(this.jsonText, this.project.images);
+    const result = parseImport(this.jsonText);
     if (!result.ok) { this.errors = result.errors; this.notice = ""; return; }
-    if (result.plan.floors.length === 1 && this.selectedImage && result.plan.floors[0].background !== this.selectedImage) {
-      this.errors = [`Etage „${result.plan.floors[0].name}“: Die Bildreferenz im JSON passt nicht zum ausgewählten Bild „${this.image?.name ?? this.selectedImage}“. Verwenden Sie exakt ${this.selectedImage} oder wählen Sie vorher das passende hochgeladene Bild aus.`];
-      this.notice = "";
-      return;
-    }
     this.draft = result.plan;
     this.bindings = reconcileBindings(result.plan, { ...this.project.bindings, ...this.bindings }).bindings;
     this.imported = true;
@@ -201,7 +135,7 @@ export class HeizlastHaCard extends LitElement {
     this.editing = false;
     this.chooseFloor(result.plan.floors[0].id);
     this.errors = [];
-    this.notice = "Import geprüft. Alle Etagen sind in der Vorschau. Prüfen Sie die Raumgrenzen über dem Originalbild und übernehmen Sie den Import ausdrücklich.";
+    this.notice = "Import geprüft. Alle Etagen sind in der Vorschau. Prüfen Sie Raumkonturen, Namen und Anordnung. Übernehmen Sie anschließend den Import ausdrücklich.";
   }
 
   private updateRoom(update: (room: Room) => Room): void {
@@ -262,7 +196,7 @@ export class HeizlastHaCard extends LitElement {
 
   private async save(confirmed = false): Promise<void> {
     if (!this.draft || !this.project || !this.hass || !this.admin || this.busy) return;
-    const result = validatePlan(this.draft, this.project.images);
+    const result = validatePlan(this.draft);
     if (!result.ok) { this.errors = result.errors; return; }
     const nextIds = new Set(roomIds(result.plan));
     const removed = roomIds(this.project.plan).filter((id) => !nextIds.has(id));
@@ -295,7 +229,7 @@ export class HeizlastHaCard extends LitElement {
   }
 
   private openPrompt(): void {
-    const missing = promptRequirements(this.image, this.floorId, this.floorName);
+    const missing = promptRequirements(this.floorId, this.floorName);
     if (missing.length) { this.errors = missing; return; }
     this.returnFocus = this.shadowRoot?.activeElement as HTMLElement | undefined;
     this.copied = ""; this.showPrompt = true;
@@ -317,55 +251,49 @@ export class HeizlastHaCard extends LitElement {
   }
 
   private async copy(): Promise<void> {
-    if (!this.image) return;
-    const success = await copyPrompt(buildPrompt(this.image, this.floorId, this.floorName));
+    const success = await copyPrompt(buildPrompt(this.floorId, this.floorName));
     this.copied = success ? "Prompt kopiert." : "Zwischenablage nicht verfügbar. Der Prompt ist markiert; bitte manuell kopieren (Strg/Cmd+C).";
     if (!success) { const field = this.renderRoot.querySelector<HTMLTextAreaElement>(".prompt-text"); field?.focus(); field?.select(); }
   }
 
   protected render() {
     return html`<div class="card">
-      <header><div class="brand"><div class="brand-icon">${houseIcon}</div><div><h1>${this.config.title ?? "Mein Zuhause"}</h1><p class="subline">Grundriss & Raumtemperaturen</p></div></div><span class="badge">Prototyp · v0.4.0</span></header>
+      <header><div class="brand"><div class="brand-icon">${houseIcon}</div><div><h1>${this.config.title ?? "Mein Zuhause"}</h1><p class="subline">Grundriss & Raumtemperaturen</p></div></div><span class="badge">Prototyp</span></header>
       ${this.loading ? html`<div class="empty"><p>Projekt wird aus Home Assistant geladen …</p></div>` : html`
         <div class="toolbar"><div class="floor-tabs" aria-label="Etagen">${this.draft?.floors.map((floor) => html`<button class=${floor.id === this.floor?.id ? "active" : ""} @click=${() => this.chooseFloor(floor.id)} aria-pressed=${floor.id === this.floor?.id}>${floor.name}</button>`) ?? html`<strong style="font-size:13px">Ihr erster Grundriss</strong>`}</div>
           <div class="actions">${this.admin && this.project ? html`<button @click=${() => this.showSetup = !this.showSetup}>${this.showSetup ? "Einrichtung schließen" : "Grundriss einrichten"}</button>${this.dirty ? html`<button class="primary" ?disabled=${this.busy} @click=${() => void this.save()}>${this.busy ? "Wird gespeichert …" : this.imported ? "Import übernehmen" : "Änderungen speichern"}</button>` : nothing}` : nothing}</div>
         </div>
-        ${!this.admin ? html`<div class="notice warning">Ansicht ohne Bearbeitungsrechte. Grundriss, Räume und Sensorwerte sind sichtbar; für Upload, Import und Zuordnungen benötigt Ihr Konto Administratorrechte.</div>` : nothing}
+        ${!this.admin ? html`<div class="notice warning">Ansicht ohne Bearbeitungsrechte. Grundriss, Räume und Sensorwerte sind sichtbar; für Import, Korrekturen und Zuordnungen benötigt Ihr Konto Administratorrechte.</div>` : nothing}
         ${this.errors.length ? html`<div class="notice error" role="alert"><strong>Bitte prüfen</strong><ul>${this.errors.map((error) => html`<li>${error}</li>`)}</ul>${this.conflict ? html`<div class="actions" style="margin-top:10px"><button @click=${() => this.exportDraft()}>Änderungen sichern</button><button @click=${() => void this.loadProject()}>Aktuelle Version laden</button></div>` : !this.project ? html`<button @click=${() => void this.loadProject()}>Erneut laden</button>` : nothing}</div>` : nothing}
         ${this.notice ? html`<div class="notice" role="status">${this.notice}</div>` : nothing}
         ${this.imported ? html`<div class="notice warning"><strong>Vorschau · noch nicht gespeichert</strong><p>Die LLM-Antwort ist ein Vorschlag. Prüfen Sie alle ${this.draft?.floors.length} Etage(n) und Raumgrenzen. Gleiche Raum-IDs behalten ihre Sensorzuordnungen.</p><button @click=${() => { this.resetDraft(); this.notice = "Vorschau verworfen; gespeicherter Grundriss wiederhergestellt."; this.errors = []; }}>Vorschau verwerfen</button></div>` : nothing}
         ${this.showSetup && this.admin && this.project ? this.renderSetup() : nothing}
-        ${this.floor ? this.renderFloor(this.floor) : html`<div class="empty"><div class="empty-symbol">${houseIcon}</div><h2>Räume sichtbar machen</h2><p>Laden Sie Ihren Grundriss, lassen Sie das Bild mit dem vorbereiteten Prompt analysieren und prüfen Sie die Räume vor dem Speichern.</p>${this.admin && this.project ? html`<button @click=${() => void this.sample()} ?disabled=${this.busy}>Mit Beispielgrundriss starten</button>` : nothing}</div>`}
+        ${this.floor ? this.renderFloor(this.floor) : html`<div class="empty"><div class="empty-symbol">${houseIcon}</div><h2>Räume sichtbar machen</h2><p>Kopieren Sie den vorbereiteten Prompt und geben Sie Ihren Grundriss direkt an Ihr LLM weiter. Importieren Sie die JSON-Antwort und prüfen Sie die Räume vor dem Speichern.</p>${this.admin && this.project ? html`<button @click=${() => void this.sample()} ?disabled=${this.busy}>Mit Beispielgrundriss starten</button>` : nothing}</div>`}
       `}
-      <div class="footer"><span>Originalplan + auswählbare Räume</span><span>Temperaturanzeige · Wärmebedarfsberechnung folgt später</span></div>
-    </div>${this.showPrompt && this.image ? this.renderPrompt() : nothing}${this.confirmRemoved ? this.renderConfirmation() : nothing}`;
+      <div class="footer"><span>Digitaler Grundriss · auswählbare Räume</span><span>Temperaturanzeige · Wärmebedarfsberechnung folgt später</span></div>
+    </div>${this.showPrompt ? this.renderPrompt() : nothing}${this.confirmRemoved ? this.renderConfirmation() : nothing}`;
   }
 
   private renderSetup() {
-    const missing = promptRequirements(this.image, this.floorId, this.floorName);
+    const missing = promptRequirements(this.floorId, this.floorName);
     return html`<section class="setup" aria-label="Grundriss einrichten"><div class="steps">
-      <div class="step"><div class="step-heading"><span class="step-number">1</span><h2>Bild auswählen & Prompt vorbereiten</h2></div>
-        <div class="actions"><label class=${`file-button ${this.busy ? "disabled" : ""}`}>${uploadIcon} Bild hochladen<input type="file" accept="image/png,image/jpeg" aria-label="Grundrissbild hochladen" ?disabled=${this.busy} @change=${(event: Event) => { const input = event.target as HTMLInputElement; void this.upload(input.files?.[0]); input.value = ""; }}/></label><button ?disabled=${this.busy} @click=${() => void this.sample()}>Beispiel laden</button></div>
-        <p class="hint">PNG oder JPEG, maximal 2 MiB, 8192 Pixel pro Seite und 24 Mio. Pixel. PDF-Seite zuerst als Bild exportieren.</p>
-        ${this.project?.images.length ? html`<label class="field"><span>Hochgeladenes Bild</span><select .value=${this.selectedImage} @change=${(event: Event) => this.selectedImage = (event.target as HTMLSelectElement).value}>${this.project.images.map((image) => html`<option value=${image.background}>${image.name} · ${image.width} × ${image.height}</option>`)}</select></label>` : nothing}
+      <div class="step"><div class="step-heading"><span class="step-number">1</span><h2>LLM-Prompt vorbereiten</h2></div>
+        <p class="hint">Kein Bild-Upload nötig. Geben Sie Ihren Grundriss zusammen mit dem Prompt direkt an Ihr LLM weiter.</p>
         <div class="field-row"><label><span>Etagen-ID</span><input aria-label="Etagen-ID" .value=${this.floorId} maxlength="64" @input=${(event: Event) => this.floorId = (event.target as HTMLInputElement).value}/></label><label><span>Etagenname</span><input aria-label="Etagenname" .value=${this.floorName} maxlength="120" @input=${(event: Event) => this.floorName = (event.target as HTMLInputElement).value}/></label></div>
-        ${this.image ? html`<div class="image-info">Originalbild: ${this.image.width} × ${this.image.height} Pixel<br/>Bildreferenz: <code>${this.image.background}</code></div>` : nothing}
         <button class="primary" @click=${() => this.openPrompt()} ?disabled=${missing.length > 0 || this.busy}>${copyIcon} LLM-Prompt anzeigen</button>
-        ${missing.length ? html`<p class="hint">${missing.join(" ")}</p>` : html`<p class="hint">Den Prompt zusammen mit genau diesem Bild an Ihr LLM übergeben.</p>`}
+        ${missing.length ? html`<p class="hint">${missing.join(" ")}</p>` : html`<p class="hint">Das LLM liefert einen digitalen Grundriss, der später ohne das Original nutzbar ist.</p>`}
       </div>
       <div class="step"><div class="step-heading"><span class="step-number">2</span><h2>JSON importieren & Räume prüfen</h2></div>
         <label class=${`file-button ${this.busy ? "disabled" : ""}`}>${uploadIcon} JSON-Datei auswählen<input type="file" accept=".json,application/json" aria-label="JSON-Datei importieren" ?disabled=${this.busy} @change=${(event: Event) => { const input = event.target as HTMLInputElement; void this.readJson(input.files?.[0]); input.value = ""; }}/></label>
-        <label><span style="margin-top:12px">Oder LLM-Antwort einfügen</span><textarea class="json" aria-label="Grundriss-JSON" .value=${this.jsonText} placeholder='{"schema_version": "1.0", "floors": […]}' @input=${(event: Event) => this.jsonText = (event.target as HTMLTextAreaElement).value}></textarea></label>
-        <button ?disabled=${!this.jsonText.trim() || this.busy} @click=${() => this.checkImport()}>Import prüfen</button><p class="hint">Der Import erzeugt zunächst eine Vorschau. Alle Etagen bleiben erhalten. Für jede Etage muss das zugehörige Bild hochgeladen sein; seine Bildreferenz und Abmessungen müssen im JSON exakt übereinstimmen.</p>
+        <label><span style="margin-top:12px">Oder LLM-Antwort einfügen</span><textarea class="json" aria-label="Grundriss-JSON" .value=${this.jsonText} placeholder='{"schema_version": "1.1", "floors": […]}' @input=${(event: Event) => this.jsonText = (event.target as HTMLTextAreaElement).value}></textarea></label>
+        <button ?disabled=${!this.jsonText.trim() || this.busy} @click=${() => this.checkImport()}>Import prüfen</button><button ?disabled=${this.busy} @click=${() => void this.sample()}>Beispiel laden</button><p class="hint">Der Import erzeugt zunächst eine Vorschau. Alle Etagen bleiben erhalten. Raumkonturen und Zeichenfläche stehen vollständig im JSON; ein Hintergrundbild ist nicht erforderlich.</p>
       </div>
     </div></section>`;
   }
 
   private renderFloor(floor: Floor) {
-    const url = this.signedImages[floor.background];
-    return html`<div class="content"><div><section class="plan-area"><div class="plan-heading"><strong>${floor.name} <span class="muted">· ${floor.rooms.length} Räume</span></strong><span class="muted">${floor.canvas.width} × ${floor.canvas.height} px</span></div><div class="plan-frame">
+    return html`<div class="content"><div><section class="plan-area"><div class="plan-heading"><strong>${floor.name} <span class="muted">· ${floor.rooms.length} Räume</span></strong><span class="muted">${floor.canvas.width} × ${floor.canvas.height} Einheiten</span></div><div class="plan-frame">
       <svg class=${`plan-svg ${this.editing ? "editing" : ""}`} viewBox=${`0 0 ${floor.canvas.width} ${floor.canvas.height}`} style=${`aspect-ratio:${floor.canvas.width}/${floor.canvas.height}`} role="group" aria-label=${`Grundriss ${floor.name}`} @pointermove=${(event: PointerEvent) => this.moveDrag(event)} @pointerup=${() => this.drag = null} @pointercancel=${() => this.drag = null}>
-        ${url ? svg`<image href=${url} x="0" y="0" width=${floor.canvas.width} height=${floor.canvas.height} preserveAspectRatio="xMidYMid meet" @error=${() => this.imageError(floor.background)}/>` : svg`<text x="20" y="30" font-size="16">Grundrissbild wird geladen …</text>`}
         ${floor.rooms.map((room) => svg`<polygon class=${`room-shape ${room.id === this.selectedRoom ? "selected" : ""}`} points=${room.polygon.map((point) => point.join(",")).join(" ")} tabindex="0" role="button" aria-label=${`${room.name} auswählen`} aria-pressed=${room.id === this.selectedRoom} @click=${() => this.selectedRoom = room.id} @keydown=${(event: KeyboardEvent) => { if (["Enter", " "].includes(event.key)) { event.preventDefault(); this.selectedRoom = room.id; } }}/>`)}
         ${floor.rooms.map((room) => {
           const x = room.polygon.reduce((sum, point) => sum + point[0], 0) / room.polygon.length, y = room.polygon.reduce((sum, point) => sum + point[1], 0) / room.polygon.length;
@@ -386,12 +314,12 @@ export class HeizlastHaCard extends LitElement {
         return html`<div class="sensor-reading"><span><span class="sensor-name">${state?.attributes.friendly_name ?? id}</span><span class="sensor-id">${id}</span></span><strong class=${!state || ["unknown", "unavailable"].includes(state.state) || !Number.isFinite(Number(state.state)) ? "status" : ""}>${label}</strong></div>`;
       }) : html`<p class="hint">Noch kein Temperatursensor zugeordnet.</p>`}<p class="hint">Sensoren werden einzeln mit ihrer Einheit angezeigt.</p></div>
       ${this.admin ? html`<div class="section"><h3>Temperatursensoren zuordnen</h3><div class="sensor-select">${allSensors.length ? allSensors.map((id) => html`<label><input type="checkbox" .checked=${selected.includes(id)} ?disabled=${this.busy} @change=${(event: Event) => this.toggleSensor(id, (event.target as HTMLInputElement).checked)}/><span>${this.hass?.states[id]?.attributes.friendly_name ?? id}<br/><span class="sensor-id">${id}${!this.hass?.states[id] ? " · entfernt" : this.hass.states[id].attributes.device_class !== "temperature" ? " · Geräteklasse geändert" : ""}</span></span></label>`) : html`<p class="hint">Keine vorhandenen Sensoren mit Geräteklasse „temperature“ gefunden.</p>`}</div></div>
-      <div class="section"><button ?disabled=${this.busy} aria-pressed=${this.editing} @click=${() => this.editing = !this.editing}>${this.editing ? "Korrekturmodus beenden" : "Raumgrenzen korrigieren"}</button>${this.editing ? html`<label class="field"><span>Raumname</span><input .value=${room.name} maxlength="120" ?disabled=${this.busy} @input=${(event: Event) => this.updateRoom((room) => ({ ...room, name: (event.target as HTMLInputElement).value }))}/></label><p class="edit-note">Originalpixel: x nach rechts, y nach unten. Punkte am Plan ziehen oder Koordinaten ändern. + fügt einen Punkt auf der folgenden Kante ein.</p><div class="points">${room.polygon.map(([x, y], index) => html`<div class="point"><span>${index + 1}</span><input type="number" aria-label=${`Punkt ${index + 1} x`} min="0" max=${this.floor!.canvas.width} step="any" ?disabled=${this.busy} .value=${String(x)} @change=${(event: Event) => this.setPoint(index, 0, (event.target as HTMLInputElement).valueAsNumber)}/><input type="number" aria-label=${`Punkt ${index + 1} y`} min="0" max=${this.floor!.canvas.height} step="any" ?disabled=${this.busy} .value=${String(y)} @change=${(event: Event) => this.setPoint(index, 1, (event.target as HTMLInputElement).valueAsNumber)}/><button class="icon" title="Punkt nach diesem Punkt hinzufügen" aria-label=${`Nach Punkt ${index + 1} hinzufügen`} ?disabled=${this.busy || room.polygon.length >= 500} @click=${() => this.addPoint(index)}>+</button><button class="icon danger" title="Punkt entfernen" aria-label=${`Punkt ${index + 1} entfernen`} ?disabled=${this.busy || room.polygon.length <= 3} @click=${() => this.removePoint(index)}>−</button></div>`)}</div>` : nothing}</div>` : nothing}`;
+      <div class="section"><button ?disabled=${this.busy} aria-pressed=${this.editing} @click=${() => this.editing = !this.editing}>${this.editing ? "Korrekturmodus beenden" : "Raumgrenzen korrigieren"}</button>${this.editing ? html`<label class="field"><span>Raumname</span><input .value=${room.name} maxlength="120" ?disabled=${this.busy} @input=${(event: Event) => this.updateRoom((room) => ({ ...room, name: (event.target as HTMLInputElement).value }))}/></label><p class="edit-note">Zeichenfläche: x nach rechts, y nach unten. Punkte am Plan ziehen oder Koordinaten ändern. + fügt einen Punkt auf der folgenden Kante ein.</p><div class="points">${room.polygon.map(([x, y], index) => html`<div class="point"><span>${index + 1}</span><input type="number" aria-label=${`Punkt ${index + 1} x`} min="0" max=${this.floor!.canvas.width} step="any" ?disabled=${this.busy} .value=${String(x)} @change=${(event: Event) => this.setPoint(index, 0, (event.target as HTMLInputElement).valueAsNumber)}/><input type="number" aria-label=${`Punkt ${index + 1} y`} min="0" max=${this.floor!.canvas.height} step="any" ?disabled=${this.busy} .value=${String(y)} @change=${(event: Event) => this.setPoint(index, 1, (event.target as HTMLInputElement).valueAsNumber)}/><button class="icon" title="Punkt nach diesem Punkt hinzufügen" aria-label=${`Nach Punkt ${index + 1} hinzufügen`} ?disabled=${this.busy || room.polygon.length >= 500} @click=${() => this.addPoint(index)}>+</button><button class="icon danger" title="Punkt entfernen" aria-label=${`Punkt ${index + 1} entfernen`} ?disabled=${this.busy || room.polygon.length <= 3} @click=${() => this.removePoint(index)}>−</button></div>`)}</div>` : nothing}</div>` : nothing}`;
   }
 
   private renderPrompt() {
-    const prompt = buildPrompt(this.image!, this.floorId, this.floorName);
-    return html`<div class="dialog-backdrop" @click=${(event: Event) => { if (event.target === event.currentTarget) this.closeDialog(); }} @keydown=${(event: KeyboardEvent) => this.dialogKey(event)}><section class="dialog" role="dialog" aria-modal="true" aria-label="LLM-Prompt"><div class="dialog-top"><div><h2>LLM-Prompt</h2><p class="hint">${this.floorName} · ${this.image!.name} · ${this.image!.width} × ${this.image!.height} Pixel</p></div><button aria-label="Dialog schließen" class="icon" @click=${() => this.closeDialog()}>✕</button></div><div class="notice">Laden Sie das gespeicherte Grundrissbild hier herunter und geben Sie genau dieses Bild zusammen mit dem Prompt an Ihr LLM weiter. JPEGs werden beim Upload entsprechend ihrer sichtbaren Orientierung normalisiert. Die Anwendung führt selbst keinen LLM-Aufruf aus.</div>${this.signedImages[this.image!.background] ? html`<a class="file-button" href=${this.signedImages[this.image!.background]} download=${this.image!.name}>${uploadIcon} Grundriss herunterladen</a>` : html`<p class="hint">Bilddownload wird vorbereitet …</p>`}<textarea class="prompt-text" aria-label="Vollständiger LLM-Prompt" readonly .value=${prompt}></textarea>${this.copied ? html`<p class="hint" role="status">${this.copied}</p>` : nothing}<div class="dialog-actions"><button @click=${() => { const field = this.renderRoot.querySelector<HTMLTextAreaElement>(".prompt-text"); field?.focus(); field?.select(); }}>Alles markieren</button><button class="primary" @click=${() => void this.copy()}>${copyIcon} Prompt kopieren</button></div></section></div>`;
+    const prompt = buildPrompt(this.floorId, this.floorName);
+    return html`<div class="dialog-backdrop" @click=${(event: Event) => { if (event.target === event.currentTarget) this.closeDialog(); }} @keydown=${(event: KeyboardEvent) => this.dialogKey(event)}><section class="dialog" role="dialog" aria-modal="true" aria-label="LLM-Prompt"><div class="dialog-top"><div><h2>LLM-Prompt</h2><p class="hint">${this.floorName} · eigenständiger digitaler Grundriss</p></div><button aria-label="Dialog schließen" class="icon" @click=${() => this.closeDialog()}>✕</button></div><div class="notice">Kopieren Sie den Prompt und fügen Sie Ihren Grundriss direkt im gewünschten LLM bei, etwa als Bild oder PDF. Hier wird kein Bild hochgeladen. Importieren Sie anschließend die JSON-Antwort. Für die spätere Anzeige und Bearbeitung wird der ursprüngliche Plan nicht benötigt. Die Anwendung führt selbst keinen LLM-Aufruf aus.</div><textarea class="prompt-text" aria-label="Vollständiger LLM-Prompt" readonly .value=${prompt}></textarea>${this.copied ? html`<p class="hint" role="status">${this.copied}</p>` : nothing}<div class="dialog-actions"><button @click=${() => { const field = this.renderRoot.querySelector<HTMLTextAreaElement>(".prompt-text"); field?.focus(); field?.select(); }}>Alles markieren</button><button class="primary" @click=${() => void this.copy()}>${copyIcon} Prompt kopieren</button></div></section></div>`;
   }
 
   private renderConfirmation() {

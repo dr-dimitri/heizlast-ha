@@ -1,30 +1,33 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import schema from "../../schemas/floorplan-v1.schema.json";
+import { validatePlan } from "../src/validation";
 import { buildPrompt, copyPrompt, promptRequirements } from "../src/prompt";
-import { type ImageMetadata, temperatureLabel, temperatureSensors } from "../src/types";
+import { temperatureLabel, temperatureSensors } from "../src/types";
 
-const image: ImageMetadata = { name: "Etage.png", background: "/api/heizlast_ha/images/123", width: 1200, height: 800, mime: "image/png" };
 afterEach(() => vi.unstubAllGlobals());
 
 describe("LLM prompt", () => {
-  it("inserts actual metadata and the exact import schema with no placeholders", () => {
-    const prompt = buildPrompt(image, "eg", "Erdgeschoss");
-    for (const value of [image.background, "1200", "800", "Erdgeschoss", '"eg"', JSON.stringify(schema, null, 2)]) expect(prompt).toContain(value);
+  it("generates a prompt without an image and the exact import schema with no placeholders", () => {
+    const prompt = buildPrompt("eg", "Erdgeschoss");
+    for (const value of ["1000", "1.1", "Erdgeschoss", '"eg"', JSON.stringify(schema, null, 2)]) expect(prompt).toContain(value);
     expect(prompt).not.toContain("{{"); expect(prompt).toContain("Nur ein Formatbeispiel"); expect(prompt).toContain("area_m2");
   });
   it("escapes interpolated metadata and bounds the generated example IDs", () => {
-    const prompt = buildPrompt(image, "a".repeat(64), 'Etage "oben"\nNoch eine Zeile');
+    const prompt = buildPrompt("a".repeat(64), 'Etage "oben"\nNoch eine Zeile');
     expect(prompt).toContain('"Etage \\"oben\\"\\nNoch eine Zeile"');
     const sampleText = prompt.split("zu ersetzen:\n")[1].split("\n\nDie LLM-Antwort")[0];
     expect(JSON.parse(sampleText).floors[0].rooms[0].id.length).toBeLessThanOrEqual(64);
   });
-  it("keeps example polygons nonzero on tiny image dimensions", () => {
-    const prompt = buildPrompt({ ...image, width: 1, height: 1 }, "eg", "Erdgeschoss");
+  it("produces a schema-valid standalone example without a background", () => {
+    const prompt = buildPrompt("eg", "Erdgeschoss");
     const example = JSON.parse(prompt.split("zu ersetzen:\n")[1].split("\n\nDie LLM-Antwort")[0]);
-    expect(example.floors[0].rooms[0].polygon).toEqual([[0.1, 0.1], [0.4, 0.1], [0.4, 0.4], [0.1, 0.4]]);
+    expect(validatePlan(example).ok).toBe(true);
+    expect(example.floors[0]).not.toHaveProperty("background");
+    expect(prompt).toContain("ursprüngliche Grundriss");
+    expect(prompt).toContain("längere Seite auf 1000");
   });
   it("explains missing or invalid prerequisites before generating a prompt", () => {
-    expect(promptRequirements(undefined, "", " ").length).toBe(3); expect(() => buildPrompt(image, "invalid id", "Etage")).toThrow();
+    expect(promptRequirements("", " ").length).toBe(2); expect(() => buildPrompt("invalid id", "Etage")).toThrow();
   });
   it("confirms clipboard success", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined); vi.stubGlobal("navigator", { clipboard: { writeText } });

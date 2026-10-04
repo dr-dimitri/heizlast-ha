@@ -1,11 +1,10 @@
 import { describe, expect, it } from "vitest";
 import sample from "../../examples/ground-floor.json";
 import { geometryError, overlap, parseImport, reconcileBindings, validatePlan } from "../src/validation";
-import { bindingFor, clone, type Floorplan, type ImageMetadata, type Point } from "../src/types";
+import { bindingFor, clone, type Floorplan, type Point } from "../src/types";
 
-const image: ImageMetadata = { background: sample.floors[0].background, name: "ground-floor.png", width: 1200, height: 800, mime: "image/png" };
 const plan = () => clone(sample) as Floorplan;
-const valid = (value: unknown) => validatePlan(value, [image]);
+const valid = (value: unknown) => validatePlan(value);
 const square: Point[] = [[10, 10], [30, 10], [30, 30], [10, 30]];
 
 describe("Import validation", () => {
@@ -14,16 +13,16 @@ describe("Import validation", () => {
     expect(result.ok).toBe(true);
     if (result.ok) { result.plan.floors[0].rooms[0].name = "Changed"; expect(input.floors[0].rooms[0].name).not.toBe("Changed"); }
   });
-  it("accepts and preserves every floor using registered images", () => {
+  it("accepts and preserves every floor without any images", () => {
     const input = plan(), second = clone(input.floors[0]);
     second.id = "og"; second.rooms.forEach((room) => room.id = `og_${room.id}`); input.floors.push(second);
     const result = valid(input); expect(result.ok).toBe(true); if (result.ok) expect(result.plan.floors).toHaveLength(2);
   });
-  it.each(["invalid", "```json\n{}\n```", "{}", '{"schema_version":"2.0","floors":[]}'])("rejects invalid/unsupported data: %s", (text) => { expect(parseImport(text, [image]).ok).toBe(false); });
+  it.each(["invalid", "```json\n{}\n```", "{}", '{"schema_version":"2.0","floors":[]}'])("rejects invalid/unsupported data: %s", (text) => { expect(parseImport(text).ok).toBe(false); });
   it("rejects non-finite metric areas instead of silently converting them to null", () => {
     const input = plan(); input.floors[0].rooms[0].area_m2 = Infinity;
     expect(valid(input).ok).toBe(false);
-    expect(parseImport(JSON.stringify(plan()).replace('"area_m2":null', '"area_m2":1e309'), [image]).ok).toBe(false);
+    expect(parseImport(JSON.stringify(plan()).replace('"area_m2":null', '"area_m2":1e309')).ok).toBe(false);
   });
   it("rejects blank names, duplicated global IDs and negative metric areas", () => {
     const input = plan(); input.floors[0].rooms[0].name = "  "; expect(valid(input).ok).toBe(false);
@@ -31,16 +30,16 @@ describe("Import validation", () => {
     const ids = plan(); ids.floors[0].rooms[1].id = ids.floors[0].rooms[0].id; expect(valid(ids).ok).toBe(false);
     const area = plan(); area.floors[0].rooms[0].area_m2 = -1; expect(valid(area).ok).toBe(false);
   });
-  it("rejects unknown backgrounds, wrong dimensions and out-of-bounds points", () => {
-    const background = plan(); background.floors[0].background = "https://example.com/unsafe.png"; expect(valid(background).ok).toBe(false);
-    const dimensions = plan(); dimensions.floors[0].canvas.width = 1199; expect(valid(dimensions).ok).toBe(false);
+  it("rejects source image references and out-of-bounds canvas coordinates", () => {
+    const background = plan(); Object.assign(background.floors[0], { background: "https://example.com/unsafe.png" }); expect(valid(background).ok).toBe(false);
+    const dimensions = plan(); dimensions.floors[0].canvas.width = 1089; expect(valid(dimensions).ok).toBe(false);
     const bounds = plan(); bounds.floors[0].rooms[0].polygon[0] = [1201, 10]; expect(valid(bounds).ok).toBe(false);
   });
   it("returns meaningful room names for polygon errors", () => {
     const input = plan(); input.floors[0].rooms[0].polygon = [[10, 10], [30, 30], [30, 10], [10, 30]];
     const result = valid(input); expect(result.ok).toBe(false); if (!result.ok) expect(result.errors.join(" ")).toContain(input.floors[0].rooms[0].name);
   });
-  it("rejects oversized imports", () => { expect(parseImport(" ".repeat(2 * 1024 * 1024 + 1), [image]).ok).toBe(false); });
+  it("rejects oversized imports", () => { expect(parseImport(" ".repeat(2 * 1024 * 1024 + 1)).ok).toBe(false); });
   it("keeps bindings of stable IDs and reports assigned removed IDs", () => {
     const input = plan(), id = input.floors[0].rooms[0].id;
     const result = reconcileBindings(input, { [id]: ["sensor.a", "sensor.b"], deleted: ["sensor.c"], empty: [] });

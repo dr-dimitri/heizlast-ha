@@ -54,10 +54,9 @@ def _check_finite(value: Any, field: str = "plan") -> None:
 
 def validate_plan(
     plan: Any,
-    images: list[JsonObject],
     validator: Draft202012Validator,
 ) -> JsonObject | None:
-    """Return an isolated plan after validating schema and image geometry."""
+    """Validate self-contained room geometry within the declared canvas."""
     if plan is None:
         return None
     _check_finite(plan)
@@ -66,22 +65,11 @@ def validate_plan(
         error = errors[0]
         raise ProjectError(f"{error.json_path}: {error.message}")
 
-    known_images = {image["background"]: image for image in images}
     seen: set[str] = set()
     for floor in plan["floors"]:
         field = f"Etage {floor['id']}"
         _check_id_and_name(floor, seen, field)
-        image = known_images.get(floor["background"])
-        if image is None:
-            raise ProjectError(
-                f"{field}.background: Bitte das Hintergrundbild zuerst hochladen."
-            )
-        width, height = image["width"], image["height"]
-        if floor["canvas"] != {"width": width, "height": height}:
-            raise ProjectError(
-                f"{field}.canvas: Das Originalbild hat {width} × {height} Pixel."
-            )
-
+        width, height = floor["canvas"]["width"], floor["canvas"]["height"]
         polygons: list[Polygon] = []
         rooms = floor["rooms"]
         for room in rooms:
@@ -95,7 +83,7 @@ def validate_plan(
             if any(not (0 <= x <= width and 0 <= y <= height) for x, y in points):
                 raise ProjectError(
                     f"{room_field}.polygon: Ein Punkt liegt "
-                    "außerhalb des Originalbildes."
+                    "außerhalb der Zeichenfläche."
                 )
             polygon = Polygon(points)
             if not polygon.is_valid or polygon.area <= GEOMETRY_EPSILON:

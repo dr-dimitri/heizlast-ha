@@ -53,7 +53,9 @@ def test_example_polygons_match_exact_svg_room_boundaries():
 @pytest.mark.parametrize(
     "change",
     [
+        lambda plan: plan.update(schema_version="1.0"),
         lambda plan: plan.update(schema_version="2.0"),
+        lambda plan: plan["floors"][0].update(background="/local/plan.png"),
         lambda plan: plan.update(unexpected=True),
         lambda plan: plan["floors"][0]["canvas"].update(width=8193),
         lambda plan: plan["floors"][0]["canvas"].update(height=0),
