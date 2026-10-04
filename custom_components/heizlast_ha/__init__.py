@@ -8,6 +8,7 @@ from homeassistant.helpers.typing import ConfigType
 
 from .api import async_register_api
 from .const import DOMAIN
+from .frontend import async_register_card, unregister_card
 from .project import Project
 from .validation import ProjectError
 
@@ -31,6 +32,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: HeizlastConfigEntry) -> 
         await project.async_load()
     except (OSError, ProjectError) as err:
         raise ConfigEntryNotReady(str(err)) from err
+    hass.data[DOMAIN]["card_url"] = await async_register_card(hass)
     entry.runtime_data = project
     hass.data[DOMAIN]["project"] = project
     return True
@@ -39,5 +41,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: HeizlastConfigEntry) -> 
 async def async_unload_entry(hass: HomeAssistant, entry: HeizlastConfigEntry) -> bool:
     """Finish pending mutations before removing this entry from the APIs."""
     await entry.runtime_data.async_shutdown()
+    unregister_card(hass)
     hass.data[DOMAIN].pop("project", None)
     return True

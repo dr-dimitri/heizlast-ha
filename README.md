@@ -1,41 +1,62 @@
 # heizlast-ha
 
-Home-Assistant-Integration mit einer interaktiven Grundrisskarte. Version **0.2.0**
-setzt den Prototyp aus [Issue #1](https://github.com/dr-dimitri/heizlast-ha/issues/1)
-um: PNG-/JPEG-Grundrisse, JSON-Raumflächen, Korrekturmodus, mehrere Etagen,
-zugeordnete Temperatursensoren und ein kopierbarer Prompt für ein externes LLM.
+Home-Assistant-Integration mit einer interaktiven Grundrisskarte. Version **0.3.0**
+ermöglicht die HACS-Installation einschließlich automatisch geladener Karte.
+Der Prototyp aus [Issue #1](https://github.com/dr-dimitri/heizlast-ha/issues/1)
+enthält PNG-/JPEG-Grundrisse, JSON-Raumflächen, Korrekturmodus, mehrere Etagen,
+zugeordnete Temperatursensoren und einen kopierbaren Prompt für ein externes LLM.
 
 Die Integration speichert Bilder, Grundrisse und Sensorzuordnungen in Home
 Assistant. Temperaturwerte kommen direkt von den vorhandenen Sensoren. Eine
 Heizlastberechnung und Heizungssteuerung folgen in späteren Projektphasen.
 
-## Installation in Home Assistant
+## Installation über HACS
 
-Getestet mit Home Assistant **2026.9.4**. Die Installation dieser Custom
-Integration erfolgt zunächst manuell; HACS-Veröffentlichung ist noch nicht
-Teil des Prototyps.
+Voraussetzung: Home Assistant **2026.9.4 oder neuer** und eingerichtetes HACS.
+Heizlast HA wird als **benutzerdefiniertes Repository** installiert:
 
-1. Das ZIP-Artefakt eines erfolgreichen GitHub-Actions-Laufs herunterladen und
-   entpacken. Falls der Download eine weitere ZIP-Datei enthält, auch diese
-   entpacken.
-2. `custom_components/heizlast_ha/` nach
-   `/config/custom_components/heizlast_ha/` kopieren.
-3. `www/heizlast-ha/` nach `/config/www/heizlast-ha/` kopieren.
+1. In HACS das Menü **⋮ → Benutzerdefinierte Repositories** öffnen.
+2. `https://github.com/dr-dimitri/heizlast-ha` hinzufügen und den Typ
+   **Integration** auswählen.
+3. **Heizlast HA** suchen und die neueste veröffentlichte Version herunterladen.
 4. Home Assistant neu starten. Unter **Einstellungen → Geräte & Dienste →
    Integration hinzufügen** nach **Heizlast HA** suchen und hinzufügen.
-5. Im Dashboard unter **Ressourcen** die URL
-   `/local/heizlast-ha/heizlast-ha-card.js?v=0.2.0` als **JavaScript-Modul**
-   eintragen. Für die Ressourcenverwaltung gegebenenfalls den erweiterten Modus
-   im Benutzerprofil aktivieren. Bei späteren Updates die Versionsangabe in der
-   Ressourcen-URL ändern und das Dashboard neu laden.
-6. Eine Karte mit folgender Konfiguration hinzufügen:
+5. Das Dashboard im Browser neu laden und eine Karte hinzufügen:
 
    ```yaml
    type: custom:heizlast-ha-card
    ```
 
-Das Archiv enthält zusätzlich Quellcode, Tests und Beispiele. Diese werden für
-die Installation nicht in das Home-Assistant-Konfigurationsverzeichnis kopiert.
+Die Dashboard-Karte ist im HACS-Paket enthalten und wird von der Integration
+selbst geladen. Eine zusätzliche HACS-Dashboard-Installation und ein manuell
+angelegter Ressourceneintrag sind nicht erforderlich. Dies funktioniert mit
+über die Oberfläche verwalteten Dashboards und YAML-Dashboards.
+
+Updates ebenfalls über HACS herunterladen, anschließend Home Assistant neu
+starten und die Browserseite neu laden. Grundrisse, Bilder und Sensorzuordnungen
+liegen weiterhin in `.storage` und bleiben beim Update erhalten.
+
+Bei einem Wechsel von Version 0.2.0 zuerst den bisherigen Ressourceneintrag
+`/local/heizlast-ha/heizlast-ha-card.js?...` aus den Dashboard-Ressourcen bzw.
+der YAML-Konfiguration entfernen, damit keine alte Karte zusätzlich geladen
+wird. Die bereits eingerichtete Integration und ihre gespeicherten Daten
+bleiben erhalten.
+
+Die offiziellen Schritte für benutzerdefinierte Repositories stehen in der
+[HACS-Anleitung](https://www.hacs.xyz/docs/faq/custom_repositories/).
+
+### Manuelle Installation
+
+Das Asset **heizlast_ha.zip** aus einem
+[GitHub-Release](https://github.com/dr-dimitri/heizlast-ha/releases) herunterladen
+und seinen Inhalt nach `/config/custom_components/heizlast_ha/` entpacken.
+`manifest.json` und `__init__.py` müssen direkt in diesem Ordner liegen,
+die Dashboard-Datei unter `www/heizlast-ha-card.js` innerhalb desselben Ordners.
+Danach mit Schritt 4 und 5 der HACS-Anleitung oben fortfahren.
+
+Das größere Projektarchiv aus der CI enthält zusätzlich Quellcode, Tests und
+Beispiele; daraus nur den Inhalt von `custom_components/heizlast_ha/` nach
+`/config/custom_components/heizlast_ha/` kopieren.
 
 ## Vom Grundriss zur Temperaturanzeige
 
@@ -123,9 +144,13 @@ python scripts/build.py
 
 Der Build erzeugt ein versioniertes Projektarchiv in `dist/`. Er nimmt nur mit
 Git verwaltete Dateien auf; neue Dateien vor dem lokalen Build mit `git add`
-vormerken. Kompilierte Dashboarddateien werden unter `www/heizlast-ha/`
-mitgeliefert. Integrationsmanifest, Frontend und `VERSION` müssen die gleiche
-Projektversion nennen.
+vormerken. Kompilierte Dashboarddateien werden auch unter
+`custom_components/heizlast_ha/www/` mitgeliefert. Der lokale Build erzeugt dort
+die ignorierten Dateien für eine vollständige Installation aus dem Checkout.
+Zusätzlich entsteht `dist/heizlast_ha.zip`, das nur die Integration samt Karte
+enthält und von HACS direkt in den Integrationsordner entpackt wird.
+Integrationsmanifest, Frontend und `VERSION` müssen die gleiche Projektversion
+nennen.
 
 Mit `npm run dev` im Ordner `frontend/` lässt sich die Karte gegen einen lokalen
 Entwicklungsadapter ansehen. Dieser stellt Beispielsensoren und einen
@@ -136,4 +161,18 @@ Die GitHub-CI prüft Pull Requests nach `main` sowie Änderungen auf `main` und
 kann manuell gestartet werden. Ihre verbindliche Beschreibung, die geplanten
 Integrations-/Frontendpfade und die Pflicht zur synchronen Dokumentation stehen
 in [AGENTS.md](AGENTS.md). Build-Archive stehen im jeweiligen Actions-Lauf für
-14 Tage zum Download bereit.
+14 Tage zum Download bereit. HACS installiert das dauerhafte Asset eines
+GitHub-Releases, nicht das temporäre Actions-Artefakt.
+
+## HACS-Release veröffentlichen
+
+Nach Review, Versionsanhebung und Merge muss die CI auf `main` erfolgreich sein.
+Danach unter **Actions → HACS release → Run workflow** den Branch **main**
+auswählen. Der Release-Workflow lädt das CI-Artefakt desselben Commits, prüft
+Version, Quellcommit und vollständigen Paketinhalt und veröffentlicht
+`v<VERSION>` mit dem Asset `heizlast_ha.zip`. Bereits vorhandene Releases werden
+nicht überschrieben; für Änderungen eine neue Projektversion verwenden.
+
+`hacs.json` blendet die nicht gebauten Branchdateien bei der Installation aus.
+Alle Laufzeitdateien einschließlich Karte und Icon liegen im Integrationspaket.
+Die CI verwendet zusätzlich die offizielle HACS-Validierungsaktion.

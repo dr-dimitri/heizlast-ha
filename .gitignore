@@ -210,6 +210,7 @@ tempCodeRunnerFile.py
 
 # Dashboard dependencies
 node_modules/
+custom_components/heizlast_ha/www/
 
 # PyPI configuration file
 .pypirc

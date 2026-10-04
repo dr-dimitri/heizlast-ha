@@ -325,7 +325,7 @@ export class HeizlastHaCard extends LitElement {
 
   protected render() {
     return html`<div class="card">
-      <header><div class="brand"><div class="brand-icon">${houseIcon}</div><div><h1>${this.config.title ?? "Mein Zuhause"}</h1><p class="subline">Grundriss & Raumtemperaturen</p></div></div><span class="badge">Prototyp · v0.2.0</span></header>
+      <header><div class="brand"><div class="brand-icon">${houseIcon}</div><div><h1>${this.config.title ?? "Mein Zuhause"}</h1><p class="subline">Grundriss & Raumtemperaturen</p></div></div><span class="badge">Prototyp · v0.3.0</span></header>
       ${this.loading ? html`<div class="empty"><p>Projekt wird aus Home Assistant geladen …</p></div>` : html`
         <div class="toolbar"><div class="floor-tabs" aria-label="Etagen">${this.draft?.floors.map((floor) => html`<button class=${floor.id === this.floor?.id ? "active" : ""} @click=${() => this.chooseFloor(floor.id)} aria-pressed=${floor.id === this.floor?.id}>${floor.name}</button>`) ?? html`<strong style="font-size:13px">Ihr erster Grundriss</strong>`}</div>
           <div class="actions">${this.admin && this.project ? html`<button @click=${() => this.showSetup = !this.showSetup}>${this.showSetup ? "Einrichtung schließen" : "Grundriss einrichten"}</button>${this.dirty ? html`<button class="primary" ?disabled=${this.busy} @click=${() => void this.save()}>${this.busy ? "Wird gespeichert …" : this.imported ? "Import übernehmen" : "Änderungen speichern"}</button>` : nothing}` : nothing}</div>

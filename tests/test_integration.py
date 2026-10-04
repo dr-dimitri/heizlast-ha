@@ -24,7 +24,7 @@ from custom_components.heizlast_ha.const import DOMAIN, STORAGE_KEY
 from custom_components.heizlast_ha.project import Project
 from custom_components.heizlast_ha.validation import ProjectError
 
-pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
+pytestmark = pytest.mark.usefixtures("enable_custom_integrations", "bundled_card")
 
 
 @pytest.fixture
