@@ -1,0 +1,14 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Heizlast HA einrichten",
+        "description": "Ein dauerhaft gespeichertes Grundrissprojekt erstellen. Anschließend die Heizlast-HA-Dashboard-Karte hinzufügen, einen Plan hochladen, den LLM-Prompt erstellen und Temperatursensoren zuordnen."
+      }
+    },
+    "abort": {
+      "already_configured": "Heizlast HA ist bereits eingerichtet.",
+      "single_instance_allowed": "Es wird nur ein Heizlast-HA-Projekt unterstützt."
+    }
+  }
+}
