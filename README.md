@@ -1,7 +1,7 @@
 # heizlast-ha
 
-Home-Assistant-Integration mit einer interaktiven Grundrisskarte. Version **0.4.0**
-ergänzt eine Reparaturmeldung zum Neuladen nach Änderungen der Dashboard-Karte.
+Home-Assistant-Integration mit einer interaktiven Grundrisskarte. Version **0.5.0**
+stellt das Dashboard **Heizlast HA** automatisch in der HA-Seitenleiste bereit.
 Der Prototyp aus [Issue #1](https://github.com/dr-dimitri/heizlast-ha/issues/1)
 enthält PNG-/JPEG-Grundrisse, JSON-Raumflächen, Korrekturmodus, mehrere Etagen,
 zugeordnete Temperatursensoren und einen kopierbaren Prompt für ein externes LLM.
@@ -21,13 +21,25 @@ Heizlast HA wird als **benutzerdefiniertes Repository** installiert:
 3. **Heizlast HA** suchen und die neueste veröffentlichte Version herunterladen.
 4. Home Assistant neu starten. Unter **Einstellungen → Geräte & Dienste →
    Integration hinzufügen** nach **Heizlast HA** suchen und hinzufügen.
-5. Das Dashboard im Browser neu laden und eine Karte hinzufügen:
+5. Die Browserseite neu laden und links **Heizlast HA** öffnen. Das Dashboard
+   zeigt direkt die Grundrisseinrichtung zum Hochladen eines Plans, Erstellen
+   des LLM-Prompts und Zuordnen von Temperatursensoren. Es ist auch über den
+   Öffnen-Link der Integration unter **Geräte & Dienste** erreichbar.
 
-   ```yaml
-   type: custom:heizlast-ha-card
-   ```
+Das eigene Dashboard wird als Home-Assistant-Panel bereitgestellt und benötigt
+keine manuelle Dashboard- oder Kartenkonfiguration. Es funktioniert auch bei
+YAML-Dashboards. Beim Deaktivieren oder Entfernen der Integration wird der
+Seitenleisteneintrag entfernt; gespeicherte Projektdaten bleiben erhalten.
+Bestehende Dashboards bleiben unverändert. Ist `/heizlast-ha` bereits belegt,
+verwendet die Integration den nächsten freien Pfad, etwa `/heizlast-ha-2`.
 
-Die Dashboard-Karte ist im HACS-Paket enthalten und wird von der Integration
+Die Karte kann zusätzlich in ein eigenes Dashboard eingebunden werden:
+
+```yaml
+type: custom:heizlast-ha-card
+```
+
+Dashboard und Karte sind im HACS-Paket enthalten und werden von der Integration
 selbst geladen. Eine zusätzliche HACS-Dashboard-Installation und ein manuell
 angelegter Ressourceneintrag sind nicht erforderlich. Dies funktioniert mit
 über die Oberfläche verwalteten Dashboards und YAML-Dashboards.
@@ -35,6 +47,9 @@ angelegter Ressourceneintrag sind nicht erforderlich. Dies funktioniert mit
 Updates ebenfalls über HACS herunterladen, anschließend Home Assistant neu
 starten und die Browserseite neu laden. Grundrisse, Bilder und Sensorzuordnungen
 liegen weiterhin in `.storage` und bleiben beim Update erhalten.
+Auch bei bereits eingerichteten Integrationen erscheint das eigene Dashboard
+nach dem Update automatisch in der Seitenleiste. Normale Benutzer können die
+gespeicherten Pläne ansehen; zum Einrichten sind Administratorrechte nötig.
 
 ### Reparaturmeldung nach Dashboard-Updates
 
