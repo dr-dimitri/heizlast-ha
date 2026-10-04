@@ -86,7 +86,7 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
 ### Versionierung und Paketinhalt
 
 - `VERSION` ist die zentrale Projektversion im Format `MAJOR.MINOR.PATCH`,
-  aktuell `0.3.0`. Für eine neue Implementierung die Version nach SemVer
+  aktuell `0.4.0`. Für eine neue Implementierung die Version nach SemVer
   erhöhen. CI-Builds erhalten zusätzlich eine eindeutige Buildkennung.
 - Sobald Integrationen vorhanden sind, liegen sie unter
   `custom_components/<domain>/`. Jeder Integrationsordner benötigt
@@ -110,6 +110,14 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   die gebündelte Karte automatisch als zusätzliches JavaScript-Modul und
   verwendet die Manifestversion in der URL für Updates. Bestehende manuelle
   Ressourceneinträge aus Version 0.2.0 müssen bei der Migration entfernt werden.
+- Die Integration vergleicht den SHA-256-Fingerabdruck der gebündelten Karte
+  mit der zuletzt bestätigten Dashboard-Datei im Konfigurationseintrag.
+  Änderungen erzeugen eine Reparatur mit Anleitung zum Neuladen und manueller
+  Bestätigung. Bei Erstinstallationen wird nur der Ausgangsstand gespeichert;
+  bestehende Installationen ohne Fingerabdruck erhalten einmalig eine Meldung.
+  Änderungen ausschließlich am Backend lösen bei identischer Karte keine
+  Reparatur aus. `repairs.py` ist eine verpflichtende Laufzeitdatei und wird
+  sowohl beim Build als auch vor der HACS-Veröffentlichung geprüft.
 - Das Projekt enthält die Integration `custom_components/heizlast_ha/` und
   die Dashboard-Karte unter `frontend/`. Beide Komponenten sind damit in der
   CI verpflichtend; Hassfest und Frontend-Prüfungen dürfen für vorhandenen Code
@@ -123,6 +131,9 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
 - HACS-Tests prüfen das direkt installierbare ZIP, Paketvollständigkeit und
   Releaseherkunft. Frontend-Integrationstests prüfen statischen Modulzugriff,
   automatisches Laden, Entladen/Neuladen und einen fehlenden Kartenbuild.
+  Reparaturtests prüfen Erstinstallation, Kartenänderungen, Bestätigung,
+  Neustart, veraltete Dialoge, Bereinigung und deutsche/englische Übersetzungen
+  mit Home Assistants echtem Reparaturmanager.
 - Die Frontend-Prüfungen führen den TypeScript-Compiler ohne Ausgabe aus.
   Vitest prüft unter anderem Schema-/Geometrievalidierung, Prompt und
   Kartennutzung; Vite bündelt die Karte als eigenständiges JavaScript-Modul

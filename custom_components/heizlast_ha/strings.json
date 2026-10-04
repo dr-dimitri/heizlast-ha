@@ -10,5 +10,22 @@
       "already_configured": "Heizlast HA is already configured.",
       "single_instance_allowed": "Only one Heizlast HA project is supported."
     }
+  },
+  "issues": {
+    "dashboard_reload": {
+      "title": "Reload the Heizlast HA dashboard (version {version})",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Reload the updated dashboard",
+            "description": "The Heizlast HA dashboard has changed in version {version}. Open dashboards may still use the previous card.\n\nReload every open Home Assistant dashboard in your browser (F5 or the reload button). In the companion app, close and reopen the dashboard; if it still shows the old card, reset the frontend cache in the app settings. Saved floor plans and sensor assignments are preserved.\n\nAfter reloading, return to this repair and confirm to dismiss the notice."
+          }
+        },
+        "abort": {
+          "dashboard_changed": "The dashboard has changed again. Open the current dashboard repair, reload it, and confirm there.",
+          "dashboard_unavailable": "Heizlast HA is currently unavailable. Enable the integration before confirming the dashboard reload."
+        }
+      }
+    }
   }
 }

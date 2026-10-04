@@ -10,6 +10,8 @@ from unittest.mock import patch
 
 import pytest
 from homeassistant import config_entries, loader
+from homeassistant.components.repairs import repairs_flow_manager
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.storage import Store
 from homeassistant.setup import async_setup_component
 from homeassistant.util.file import WriteError
@@ -20,8 +22,13 @@ from pytest_homeassistant_custom_component.common import (
 )
 
 from custom_components.heizlast_ha.api import get_project
-from custom_components.heizlast_ha.const import DOMAIN, STORAGE_KEY
+from custom_components.heizlast_ha.const import (
+    CONF_DASHBOARD_FINGERPRINT,
+    DOMAIN,
+    STORAGE_KEY,
+)
 from custom_components.heizlast_ha.project import Project
+from custom_components.heizlast_ha.repairs import ISSUE_PREFIX
 from custom_components.heizlast_ha.validation import ProjectError
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations", "bundled_card")
@@ -108,6 +115,50 @@ async def test_config_flow_is_single_instance(hass):
     )
     assert duplicate["type"] == "abort"
     assert duplicate["reason"] in {"already_configured", "single_instance_allowed"}
+
+
+@pytest.mark.parametrize("confirm", [False, True])
+async def test_dashboard_reload_confirmation_survives_restart(
+    hass, bundled_card, confirm
+):
+    """Recover actual saved config entries in a fresh Home Assistant instance."""
+    initial = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    created = await hass.config_entries.flow.async_configure(initial["flow_id"], {})
+    await hass.async_block_till_done()
+    entry = created["result"]
+    baseline = entry.data[CONF_DASHBOARD_FINGERPRINT]
+    bundled_card.write_text("export const upgradedDashboard = true;\n")
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    fingerprint = hass.data[DOMAIN]["dashboard"].fingerprint
+    assert fingerprint != baseline
+    issue_id = f"{ISSUE_PREFIX}{fingerprint}"
+    if confirm:
+        manager = repairs_flow_manager(hass)
+        flow = await manager.async_init(DOMAIN, data={"issue_id": issue_id})
+        assert (await manager.async_configure(flow["flow_id"], {}))["type"] == (
+            "create_entry"
+        )
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_stop(force=True)
+    async with async_test_home_assistant(
+        load_registries=False, config_dir=hass.config.config_dir
+    ) as restarted:
+        restarted.data.pop(loader.DATA_CUSTOM_COMPONENTS)
+        await restarted.config_entries.async_initialize()
+        recovered_entry = restarted.config_entries.async_get_entry(entry.entry_id)
+        assert recovered_entry is not None
+        assert (
+            recovered_entry.data.get(CONF_DASHBOARD_FINGERPRINT) == fingerprint
+        ) == (confirm)
+        assert await restarted.config_entries.async_setup(entry.entry_id)
+        await restarted.async_block_till_done()
+        issue = ir.async_get(restarted).async_get_issue(DOMAIN, issue_id)
+        assert (issue is None) == confirm
+        assert await restarted.config_entries.async_unload(entry.entry_id)
+        await restarted.async_stop(force=True)
 
 
 async def test_websocket_upload_import_bindings_and_invalid_import(

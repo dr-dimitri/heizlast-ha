@@ -10,5 +10,22 @@
       "already_configured": "Heizlast HA ist bereits eingerichtet.",
       "single_instance_allowed": "Es wird nur ein Heizlast-HA-Projekt unterstützt."
     }
+  },
+  "issues": {
+    "dashboard_reload": {
+      "title": "Heizlast-HA-Dashboard neu laden (Version {version})",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Aktualisiertes Dashboard neu laden",
+            "description": "Das Heizlast-HA-Dashboard hat sich mit Version {version} geändert. Geöffnete Dashboards können noch die bisherige Karte verwenden.\n\nLade alle geöffneten Home-Assistant-Dashboards im Browser neu (F5 oder die Schaltfläche zum Neuladen). In der Companion-App das Dashboard schließen und erneut öffnen; wird weiterhin die alte Karte angezeigt, den Frontend-Cache in den App-Einstellungen zurücksetzen. Gespeicherte Grundrisse und Sensorzuordnungen bleiben erhalten.\n\nKehre nach dem Neuladen zu dieser Reparatur zurück und bestätige, um die Meldung zu schließen."
+          }
+        },
+        "abort": {
+          "dashboard_changed": "Das Dashboard wurde erneut geändert. Öffne die aktuelle Dashboard-Reparatur, lade das Dashboard neu und bestätige dort.",
+          "dashboard_unavailable": "Heizlast HA ist derzeit nicht verfügbar. Aktiviere die Integration, bevor du das Neuladen des Dashboards bestätigst."
+        }
+      }
+    }
   }
 }
