@@ -88,6 +88,8 @@ def test_build_requires_dashboard_output_and_includes_built_assets(repository: P
         ({".github/workflows/ci.yml"}, True),
         ({".github/workflows/ci.yml", "AGENTS.md"}, False),
         ({"scripts/build.py"}, True),
+        ({"scripts/prepare_release.py"}, True),
+        ({"hacs.json"}, True),
         ({"requirements-ci.txt"}, True),
         ({"frontend/package.json"}, True),
         ({"custom_components/heizlast_ha/sensor.py"}, False),

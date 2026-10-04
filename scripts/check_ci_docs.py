@@ -8,6 +8,8 @@ CI_FILES = {
     "pyproject.toml",
     "requirements-ci.txt",
     "scripts/build.py",
+    "scripts/prepare_release.py",
+    "hacs.json",
     "scripts/check_ci_docs.py",
     "frontend/package.json",
     "frontend/package-lock.json",

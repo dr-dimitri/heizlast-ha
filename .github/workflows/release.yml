@@ -1,0 +1,53 @@
+name: HACS release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: hacs-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Publish verified HACS installation archive
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+      - name: Download build from successful CI on the same main commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "Releases must be dispatched on main." >&2
+            exit 1
+          fi
+          run_id=$(gh run list --workflow ci.yml --branch main \
+            --commit "$GITHUB_SHA" --status success --limit 1 \
+            --json databaseId --jq '.[0].databaseId')
+          if [ -z "$run_id" ] || [ "$run_id" = null ]; then
+            echo "No successful CI build for this main commit." >&2
+            exit 1
+          fi
+          gh run download "$run_id" --pattern 'heizlast-ha-*' --dir ci-artifacts
+      - name: Verify installation archive and provenance
+        run: >-
+          python scripts/prepare_release.py --artifacts ci-artifacts
+          --output release-assets --commit "$GITHUB_SHA"
+      - name: Publish versioned GitHub release for HACS
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          version=$(cat VERSION)
+          gh release create "v${version}" release-assets/heizlast_ha.zip \
+            --target "$GITHUB_SHA" --title "Heizlast HA ${version}" \
+            --generate-notes

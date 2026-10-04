@@ -1,0 +1,7 @@
+{
+  "name": "Heizlast HA",
+  "homeassistant": "2026.9.4",
+  "zip_release": true,
+  "filename": "heizlast_ha.zip",
+  "hide_default_branch": true
+}

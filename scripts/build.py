@@ -3,6 +3,7 @@
 import argparse
 import json
 import re
+import shutil
 import subprocess
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
@@ -18,6 +19,7 @@ def build(root: Path, output: Path, build_id: str | None = None) -> Path:
     ):
         raise ValueError("Invalid build ID.")
     components = root / "custom_components"
+    integrations: list[Path] = []
     if components.exists():
         integrations = [
             path
@@ -58,9 +60,50 @@ def build(root: Path, output: Path, build_id: str | None = None) -> Path:
         capture_output=True,
         text=True,
     ).stdout.strip()
+    hacs = root / "hacs.json"
+    hacs_files: list[tuple[Path, str]] = []
+    if hacs.exists():
+        if "hacs.json" not in tracked:
+            raise ValueError("The HACS manifest hacs.json must be tracked.")
+        config = json.loads(hacs.read_text())
+        if (
+            config.get("zip_release") is not True
+            or config.get("filename") != "heizlast_ha.zip"
+            or config.get("hide_default_branch") is not True
+        ):
+            raise ValueError("HACS requires the heizlast_ha.zip release asset.")
+        if len(integrations) != 1 or integrations[0].name != "heizlast_ha":
+            raise ValueError("HACS requires exactly the heizlast_ha integration.")
+        integration = integrations[0]
+        prefix = "custom_components/heizlast_ha/"
+        for name in sorted(filter(None, tracked)):
+            if name.startswith(prefix):
+                hacs_files.append((root / name, name.removeprefix(prefix)))
+        required = {"__init__.py", "manifest.json", "frontend.py", "brand/icon.png"}
+        if not required <= {name for _, name in hacs_files}:
+            raise ValueError("HACS integration runtime files must be tracked.")
+        if not any(
+            asset.relative_to(frontend / "dist").as_posix() == "heizlast-ha-card.js"
+            for asset in assets
+        ):
+            raise ValueError("HACS dashboard module is missing.")
+        # HACS installs only this directory. The card travels with every update.
+        destination = integration / "www"
+        if destination.is_symlink():
+            raise ValueError("Cannot copy dashboard assets into a symbolic link.")
+        if destination.exists():
+            shutil.rmtree(destination)
+        destination.mkdir()
+        for asset in assets:
+            name = Path("www") / asset.relative_to(frontend / "dist")
+            target = integration / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(asset, target)
+            hacs_files.append((asset, name.as_posix()))
     artifact_version = f"{version}+{build_id}" if build_id else version
     output.mkdir(parents=True, exist_ok=True)
     archive = output / f"heizlast-ha-{artifact_version}.zip"
+    info = json.dumps({"version": artifact_version, "source_commit": commit}, indent=2)
     with ZipFile(archive, "w", compression=ZIP_DEFLATED) as bundle:
         for name in sorted(filter(None, tracked)):
             path = root / name
@@ -74,11 +117,23 @@ def build(root: Path, output: Path, build_id: str | None = None) -> Path:
             if name.as_posix() in bundle.namelist():
                 raise ValueError(f"Duplicate dashboard asset: {name}")
             bundle.write(asset, name.as_posix())
+        if hacs_files:
+            for path, name in hacs_files:
+                if name.startswith("www/"):
+                    bundle.write(path, f"custom_components/heizlast_ha/{name}")
         bundle.writestr(
             "build-info.json",
-            json.dumps({"version": artifact_version, "source_commit": commit}, indent=2)
-            + "\n",
+            info + "\n",
         )
+    if hacs_files:
+        hacs_archive = output / "heizlast_ha.zip"
+        with ZipFile(hacs_archive, "w", compression=ZIP_DEFLATED) as bundle:
+            for path, name in hacs_files:
+                if path.is_symlink():
+                    raise ValueError(f"Cannot package symbolic link: {path}")
+                bundle.write(path, name)
+            bundle.writestr("build-info.json", info + "\n")
+        print(hacs_archive)
     print(archive)
     return archive
 
