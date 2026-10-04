@@ -1,7 +1,7 @@
 # heizlast-ha
 
 Home-Assistant-Integration mit einer interaktiven digitalen Grundrisskarte.
-Version **0.6.0** erzeugt einen kopierbaren Prompt für ein externes LLM ohne
+Version **0.6.1** erzeugt einen kopierbaren Prompt für ein externes LLM ohne
 Bild-Upload. Der importierte digitale Grundriss enthält Raumkonturen, Namen und
 Zeichenfläche vollständig; der ursprüngliche Plan wird danach nicht benötigt.
 Das Dashboard **Heizlast HA** steht automatisch in der HA-Seitenleiste bereit.
@@ -197,12 +197,18 @@ GitHub-Releases, nicht das temporäre Actions-Artefakt.
 
 ## HACS-Release veröffentlichen
 
+Nach jedem Merge ist ein neues HACS-Release verpflichtend, auch bei reinen
+Dokumentationsänderungen. Vor dem Merge eine bisher unveröffentlichte Version
+vorbereiten; reine Dokumentationsänderungen erhöhen mindestens die Patch-Version.
 Nach Review, Versionsanhebung und Merge muss die CI auf `main` erfolgreich sein.
 Danach unter **Actions → HACS release → Run workflow** den Branch **main**
 auswählen. Der Release-Workflow lädt das CI-Artefakt desselben Commits, prüft
 Version, Quellcommit und vollständigen Paketinhalt und veröffentlicht
-`v<VERSION>` mit dem Asset `heizlast_ha.zip`. Bereits vorhandene Releases werden
-nicht überschrieben; für Änderungen eine neue Projektversion verwenden.
+`v<VERSION>` mit dem Asset `heizlast_ha.zip`. Anschließend Version, Quellcommit
+und Paketinhalt des veröffentlichten Assets prüfen. Der Projektabschluss setzt
+eine erfolgreiche Veröffentlichung und Asset-Prüfung voraus. Bereits vorhandene
+Releases werden nicht überschrieben; für Änderungen eine neue Projektversion
+verwenden.
 
 `hacs.json` blendet die nicht gebauten Branchdateien bei der Installation aus.
 Alle Laufzeitdateien einschließlich Karte und Icon liegen im Integrationspaket.
