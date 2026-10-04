@@ -1,0 +1,37 @@
+{
+  "schema_version": "1.0",
+  "floors": [
+    {
+      "id": "eg",
+      "name": "Erdgeschoss",
+      "background": "/local/heizlast-ha/ground-floor.png",
+      "canvas": { "width": 1200, "height": 800 },
+      "rooms": [
+        {
+          "id": "eg_wohnzimmer",
+          "name": "Wohnzimmer",
+          "polygon": [[110, 110], [590, 110], [590, 690], [110, 690]],
+          "area_m2": null
+        },
+        {
+          "id": "eg_kueche",
+          "name": "Küche",
+          "polygon": [[610, 110], [1090, 110], [1090, 350], [610, 350]],
+          "area_m2": null
+        },
+        {
+          "id": "eg_flur",
+          "name": "Flur",
+          "polygon": [[610, 370], [1090, 370], [1090, 480], [610, 480]],
+          "area_m2": null
+        },
+        {
+          "id": "eg_bad",
+          "name": "Bad",
+          "polygon": [[610, 500], [1090, 500], [1090, 690], [610, 690]],
+          "area_m2": null
+        }
+      ]
+    }
+  ]
+}

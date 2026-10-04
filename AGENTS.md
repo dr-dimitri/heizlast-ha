@@ -48,7 +48,11 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
 
 1. **`quality`:** Python 3.14 gemäß `.python-version` einrichten und die fest
    versionierten Werkzeuge aus `requirements-ci.txt` installieren
-   (`ruff==0.16.10`, `pytest==9.1.1`). Den Dokumentationsabgleich ausführen,
+   (`ruff==0.16.10`, `pytest==9.0.3`). Die Home-Assistant-Testfixtures kommen aus
+   `pytest-homeassistant-custom-component==0.13.367` und verwenden die stabile
+   Home-Assistant-Version `2026.9.4`. Für Schema-, Bild- und Geometrieprüfungen
+   werden `jsonschema==4.26.0`, `Pillow==12.3.0` und `shapely==2.1.2`
+   installiert. Den Dokumentationsabgleich ausführen,
    Workflows mit Actionlint 1.7.12 validieren, `python -m ruff check .`,
    `python -m ruff format --check .` und `python -m pytest` ausführen.
    Ruff und Pytest werden über `pyproject.toml` konfiguriert.
@@ -72,7 +76,7 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
 ### Versionierung und Paketinhalt
 
 - `VERSION` ist die zentrale Projektversion im Format `MAJOR.MINOR.PATCH`,
-  zunächst `0.1.0`. Für eine neue Implementierung die Version nach SemVer
+  aktuell `0.2.0`. Für eine neue Implementierung die Version nach SemVer
   erhöhen. CI-Builds erhalten zusätzlich eine eindeutige Buildkennung.
 - Sobald Integrationen vorhanden sind, liegen sie unter
   `custom_components/<domain>/`. Jeder Integrationsordner benötigt
@@ -84,13 +88,34 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
 - Erzeugte Frontenddateien aus `frontend/dist/` werden zusätzlich unter
   `www/heizlast-ha/` aufgenommen. Leere oder fehlende Frontend-Buildausgaben,
   inkonsistente Versionen und symbolische Links führen zu einem Buildfehler.
-- Aktuell enthält das Projekt noch keinen Integrations- oder Dashboard-Code.
-  Der erste Build ist daher ein Projektarchiv der Entwicklungsgrundlage und
-  noch keine installierbare Home-Assistant-Integration.
-- Die Tests unter `tests/` prüfen unter anderem Archivinhalt, Versionsfehler,
-  erforderliche Frontend-Ausgaben und den Dokumentationsabgleich. Sobald der
-  Prototyp implementiert wird, dessen fachliche Tests und erforderliche
-  Home-Assistant-Testabhängigkeiten ergänzen und diese CI-Beschreibung anpassen.
+- Das Projekt enthält die Integration `custom_components/heizlast_ha/` und
+  die Dashboard-Karte unter `frontend/`. Beide Komponenten sind damit in der
+  CI verpflichtend; Hassfest und Frontend-Prüfungen dürfen für vorhandenen Code
+  nicht übersprungen werden. Das Archiv enthält die Integration und die
+  kompilierte Karte für die manuelle Home-Assistant-Installation.
+- Die Tests unter `tests/` prüfen Archivinhalt, Versionsfehler,
+  erforderliche Frontend-Ausgaben, Dokumentationsabgleich, Schemakonsistenz,
+  Beispielgrundriss und die echte Home-Assistant-Integration einschließlich
+  Speicherung, Bildzugriff, WebSocket-API und Konfigurationsfluss. Pytest nutzt
+  `asyncio_mode = "auto"` und einen Funktions-Scope für asynchrone Fixtures.
+- Die Frontend-Prüfungen führen den TypeScript-Compiler ohne Ausgabe aus.
+  Vitest prüft unter anderem Schema-/Geometrievalidierung, Prompt und
+  Kartennutzung; Vite bündelt die Karte als eigenständiges JavaScript-Modul
+  `frontend/dist/heizlast-ha-card.js`. Abhängigkeiten und Lockfile liegen im
+  Frontendordner; der lokale Entwicklungsadapter wird nicht in die Karte
+  gebündelt.
+
+### Gemeinsamer Formatvertrag
+
+- `schemas/floorplan-v1.schema.json` ist die verbindliche Formatdefinition für
+  Import und LLM-Prompt. Ihre Kopie unter
+  `custom_components/heizlast_ha/floorplan-v1.schema.json` muss bytegleich sein;
+  der Schematest erzwingt dies. Änderungen immer gemeinsam durchführen und
+  Schema-Version sowie bestehende Daten berücksichtigen.
+- Die Integration speichert Grundriss, Sensorzuordnungen und Bilder in Home
+  Assistant. Der Frontend-Entwicklungsadapter darf ausschließlich für lokale
+  Vorschau und Tests verwendet werden. Administratorrechte sind für Uploads
+  und Konfigurationsänderungen erforderlich.
 
 ### CI-Änderungen immer mitdokumentieren
 

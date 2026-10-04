@@ -1,0 +1,14 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up Heizlast HA",
+        "description": "Create a persistent floor plan project. Add the Heizlast HA dashboard card after setup to upload a plan, generate an LLM prompt, and assign temperature sensors."
+      }
+    },
+    "abort": {
+      "already_configured": "Heizlast HA is already configured.",
+      "single_instance_allowed": "Only one Heizlast HA project is supported."
+    }
+  }
+}
