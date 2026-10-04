@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Set up Heizlast HA",
-        "description": "Create a persistent floor plan project. Add the Heizlast HA dashboard card after setup to upload a plan, generate an LLM prompt, and assign temperature sensors."
+        "description": "Create a persistent floor plan project. After setup, open Heizlast HA in the sidebar to upload a plan, generate an LLM prompt, and assign temperature sensors. The dashboard is provided automatically."
       }
     },
     "abort": {

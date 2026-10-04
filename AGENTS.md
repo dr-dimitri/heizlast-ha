@@ -86,7 +86,7 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
 ### Versionierung und Paketinhalt
 
 - `VERSION` ist die zentrale Projektversion im Format `MAJOR.MINOR.PATCH`,
-  aktuell `0.4.0`. Für eine neue Implementierung die Version nach SemVer
+  aktuell `0.5.0`. Für eine neue Implementierung die Version nach SemVer
   erhöhen. CI-Builds erhalten zusätzlich eine eindeutige Buildkennung.
 - Sobald Integrationen vorhanden sind, liegen sie unter
   `custom_components/<domain>/`. Jeder Integrationsordner benötigt
@@ -110,6 +110,14 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   die gebündelte Karte automatisch als zusätzliches JavaScript-Modul und
   verwendet die Manifestversion in der URL für Updates. Bestehende manuelle
   Ressourceneinträge aus Version 0.2.0 müssen bei der Migration entfernt werden.
+- Die Integration registriert zusätzlich ein eigenes Dashboard als Custom-Panel
+  **Heizlast HA** in der HA-Seitenleiste und verknüpft es mit der Integrationsseite.
+  `panel_custom` ist eine verpflichtende Abhängigkeit. Das Panel verwendet die
+  Karte aus demselben JavaScript-Modul mit Home Assistants authentifiziertem
+  Zustand und mobilem Menüknopf. Es benötigt keine manuelle Kartenkonfiguration
+  und funktioniert auch mit YAML-Dashboards und bei bestehenden Installationen.
+  Belegte URL-Pfade werden durch nummerierte Ausweichpfade erhalten. Beim
+  Entladen wird nur das eigene Panel entfernt, die Projektdaten bleiben erhalten.
 - Die Integration vergleicht den SHA-256-Fingerabdruck der gebündelten Karte
   mit der zuletzt bestätigten Dashboard-Datei im Konfigurationseintrag.
   Änderungen erzeugen eine Reparatur mit Anleitung zum Neuladen und manueller
@@ -131,6 +139,10 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
 - HACS-Tests prüfen das direkt installierbare ZIP, Paketvollständigkeit und
   Releaseherkunft. Frontend-Integrationstests prüfen statischen Modulzugriff,
   automatisches Laden, Entladen/Neuladen und einen fehlenden Kartenbuild.
+  Sie prüfen außerdem Seitenleiste, Verknüpfung mit der Integration,
+  Dashboard-Pfadkonflikte und Entfernung des eigenen Panels. Frontendtests prüfen
+  den direkten Einstieg in die Einrichtung, mobile Navigation, Zustandsupdates
+  und den Lesezugriff normaler Benutzer im Seitenleisten-Dashboard.
   Reparaturtests prüfen Erstinstallation, Kartenänderungen, Bestätigung,
   Neustart, veraltete Dialoge, Bereinigung und deutsche/englische Übersetzungen
   mit Home Assistants echtem Reparaturmanager.

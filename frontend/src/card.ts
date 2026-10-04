@@ -1,4 +1,4 @@
-import { LitElement, html, svg, nothing, type PropertyValues } from "lit";
+import { LitElement, css, html, svg, nothing, type PropertyValues } from "lit";
 import { styles } from "./styles";
 import { buildPrompt, copyPrompt, promptRequirements } from "./prompt";
 import { parseImport, reconcileBindings, validatePlan } from "./validation";
@@ -409,8 +409,27 @@ class HeizlastHaCardEditor extends LitElement {
   }
 }
 
+/** The integration's sidebar dashboard uses the same card and authenticated API. */
+export class HeizlastHaPanel extends LitElement {
+  static properties = { hass: { attribute: false }, narrow: { type: Boolean } };
+  static styles = css`
+    :host { display: block; height: 100%; overflow: auto; background: var(--primary-background-color); color: var(--primary-text-color); }
+    header { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; height: var(--header-height, 56px); padding: 0 16px; background: var(--app-header-background-color, var(--primary-color)); color: var(--app-header-text-color, white); }
+    h1 { margin: 0 0 0 16px; font-size: 20px; font-weight: 400; }
+    main { max-width: 1600px; margin: 0 auto; padding: 24px; }
+    @media (max-width: 600px) { main { padding: 12px; } }
+  `;
+  hass?: HomeAssistant;
+  narrow = false;
+
+  protected render() {
+    return html`<header><hass-menu-button .hass=${this.hass} .narrow=${this.narrow}></hass-menu-button><h1>Heizlast HA</h1></header><main><heizlast-ha-card .hass=${this.hass}></heizlast-ha-card></main>`;
+  }
+}
+
 if (!customElements.get("heizlast-ha-card")) customElements.define("heizlast-ha-card", HeizlastHaCard);
 if (!customElements.get("heizlast-ha-card-editor")) customElements.define("heizlast-ha-card-editor", HeizlastHaCardEditor);
+if (!customElements.get("heizlast-ha-panel")) customElements.define("heizlast-ha-panel", HeizlastHaPanel);
 const registry = window as Window & { customCards?: Array<{ type: string; name: string; description: string; preview: boolean }> };
 registry.customCards ??= [];
 if (!registry.customCards.some((card) => card.type === "heizlast-ha-card")) registry.customCards.push({ type: "heizlast-ha-card", name: "Heizlast HA", description: "Interaktiver Grundriss mit Raumtemperaturen und LLM-Prompt", preview: false });
