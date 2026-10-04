@@ -63,6 +63,8 @@ def build(root: Path, output: Path, build_id: str | None = None) -> Path:
     hacs = root / "hacs.json"
     hacs_files: list[tuple[Path, str]] = []
     if hacs.exists():
+        if "hacs.json" not in tracked:
+            raise ValueError("The HACS manifest hacs.json must be tracked.")
         config = json.loads(hacs.read_text())
         if (
             config.get("zip_release") is not True

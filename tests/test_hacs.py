@@ -128,6 +128,13 @@ def test_hacs_build_refuses_linked_dashboard_directory(hacs_repository):
         build(root, root / "dist")
 
 
+def test_hacs_build_requires_tracked_repository_manifest(hacs_repository):
+    root = hacs_repository
+    subprocess.run(["git", "rm", "--cached", "hacs.json"], cwd=root, check=True)
+    with pytest.raises(ValueError, match="hacs.json must be tracked"):
+        build(root, root / "dist")
+
+
 @pytest.mark.parametrize(
     "omit", ["manifest.json", "www/heizlast-ha-card.js", "build-info.json"]
 )

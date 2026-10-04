@@ -101,6 +101,7 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
 - Für HACS muss die einzige Integration `heizlast_ha` sein. `hacs.json`
   verwendet `zip_release: true`, `filename: heizlast_ha.zip`,
   `hide_default_branch: true` und die Mindestversion Home Assistant `2026.9.4`.
+  Die HACS-Konfigurationsdatei muss versioniert sein; der Build prüft dies.
   Das ZIP enthält direkt die Dateien des Integrationsordners, einschließlich
   `www/heizlast-ha-card.js`, gemeinsamer Schema-Datei und `brand/icon.png`.
   Der Build kopiert die Karte auch in den ignorierten lokalen Ordner
