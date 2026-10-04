@@ -95,7 +95,7 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
 ### Versionierung und Paketinhalt
 
 - `VERSION` ist die zentrale Projektversion im Format `MAJOR.MINOR.PATCH`,
-  aktuell `0.6.1`. Für eine neue Implementierung die Version nach SemVer
+  aktuell `0.7.0`. Für eine neue Implementierung die Version nach SemVer
   erhöhen. Jeder Merge benötigt eine bisher unveröffentlichte Version für das
   verpflichtende HACS-Release; reine Dokumentationsänderungen erhöhen mindestens
   die Patch-Version. CI-Builds erhalten zusätzlich eine eindeutige Buildkennung.
@@ -155,6 +155,13 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   den direkten Einstieg in die Einrichtung, Prompt ohne Bild-Upload, eigenständige
   Raumdarstellung, mobile Navigation, Zustandsupdates
   und den Lesezugriff normaler Benutzer im Seitenleisten-Dashboard.
+  Raumtests prüfen Verbinden an gemeinsamen Grenzen und schmalen Wandabständen,
+  Erhalt konkaver Konturen und Beschriftung innerhalb der Raumfläche,
+  Sensorübernahme ohne Duplikate, Löschung bis zur leeren
+  Etage, Verwerfen der Vorschau, Bestätigung entfallender IDs und die Ablehnung
+  unzulässiger Verbindungen. Backendtests prüfen die dauerhafte Speicherung
+  leerer Etagen und die Übernahme bisheriger Sensoren entfallender Raum-IDs,
+  auch wenn deren Entitäten entfernt wurden oder ihre Geräteklasse geändert ist.
   Reparaturtests prüfen Erstinstallation, Kartenänderungen, Bestätigung,
   Neustart, veraltete Dialoge, Bereinigung und deutsche/englische Übersetzungen
   mit Home Assistants echtem Reparaturmanager.
@@ -174,6 +181,10 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   Schema-Version sowie bestehende Daten berücksichtigen.
 - Das Format `schema_version: "1.1"` enthält ausschließlich Etagen, eine
   eigenständige Zeichenfläche und Raumkonturen mit Namen, IDs und Flächenangaben.
+  Leere Raumlisten sind für Etagen nach Raumlöschungen erlaubt; diese Erweiterung
+  bleibt mit bestehenden Daten der Schema-Version `1.1` kompatibel. Verbundene
+  Räume behalten die ID und den Namen des ausgewählten Raums, übernehmen die
+  Sensorzuordnungen beider Räume und addieren ausschließlich bekannte Flächen.
   Das frühere bildbasierte Format `1.0` und das Feld `background` entfallen;
   bestehende bildbasierte Pläne müssen nicht migriert werden.
 - Die Einrichtung erzeugt nur den LLM-Prompt; der Originalgrundriss wird direkt
