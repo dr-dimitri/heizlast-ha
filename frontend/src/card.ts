@@ -2,6 +2,7 @@ import { LitElement, css, html, svg, nothing, type PropertyValues } from "lit";
 import { styles } from "./styles";
 import { buildPrompt, copyPrompt, promptRequirements } from "./prompt";
 import { parseImport, reconcileBindings, validatePlan } from "./validation";
+import { interiorLabelPoint, mergeRooms } from "./room-operations";
 import { type CardConfig, type Floor, type Floorplan, type HomeAssistant, type Point, type Project, type Room, bindingFor, clone, temperatureLabel, temperatureSensors } from "./types";
 
 const houseIcon = svg`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m3 10 9-7 9 7M5 9v11h14V9M9 20v-7h6v7"/><path d="M15 4V2h3v4"/></svg>`;
@@ -25,7 +26,7 @@ export class HeizlastHaCard extends LitElement {
     selectedFloor: { state: true }, selectedRoom: { state: true }, floorId: { state: true }, floorName: { state: true },
     showSetup: { state: true }, editing: { state: true }, imported: { state: true }, dirty: { state: true }, jsonText: { state: true },
     errors: { state: true }, notice: { state: true }, loading: { state: true }, busy: { state: true }, showPrompt: { state: true }, copied: { state: true },
-    confirmRemoved: { state: true }, conflict: { state: true },
+    confirmRemoved: { state: true }, conflict: { state: true }, mergeTarget: { state: true },
   };
 
   hass?: HomeAssistant;
@@ -35,6 +36,7 @@ export class HeizlastHaCard extends LitElement {
   private bindings: Record<string, string[]> = {};
   private selectedFloor = "";
   private selectedRoom = "";
+  private mergeTarget = "";
   private floorId = "eg";
   private floorName = "Erdgeschoss";
   private showSetup = true;
@@ -72,6 +74,7 @@ export class HeizlastHaCard extends LitElement {
     }
     if (changed.has("showPrompt") && this.showPrompt) void this.updateComplete.then(() => this.renderRoot.querySelector<HTMLElement>(".dialog button")?.focus());
     if (changed.has("confirmRemoved") && this.confirmRemoved) void this.updateComplete.then(() => this.renderRoot.querySelector<HTMLElement>(".dialog button")?.focus());
+    if (changed.has("selectedRoom") || changed.has("selectedFloor")) this.mergeTarget = "";
   }
 
   private async loadProject(): Promise<void> {
@@ -96,6 +99,8 @@ export class HeizlastHaCard extends LitElement {
     this.dirty = false;
     this.editing = false;
     this.confirmRemoved = null;
+    this.mergeTarget = "";
+    this.drag = null;
     if (this.draft?.floors.length) this.chooseFloor(this.draft.floors[0].id);
     else { this.selectedFloor = ""; this.selectedRoom = ""; }
   }
@@ -106,6 +111,8 @@ export class HeizlastHaCard extends LitElement {
     this.selectedRoom = floor?.rooms[0]?.id ?? "";
     if (floor) { this.floorId = floor.id; this.floorName = floor.name; }
     this.editing = false;
+    this.mergeTarget = "";
+    this.drag = null;
   }
 
   private async sample(): Promise<void> {
@@ -143,6 +150,51 @@ export class HeizlastHaCard extends LitElement {
     const id = this.room.id;
     this.draft = { ...this.draft, floors: this.draft.floors.map((floor) => ({ ...floor, rooms: floor.rooms.map((room) => room.id === id ? update(room) : room) })) };
     this.dirty = true;
+    this.errors = [];
+  }
+
+  private connectRooms(): void {
+    if (!this.admin || this.busy || !this.draft || !this.floor || !this.room) return;
+    const source = this.room, target = this.floor.rooms.find((room) => room.id === this.mergeTarget && room.id !== source.id);
+    if (!target) return;
+    const checked = validatePlan(this.draft);
+    if (!checked.ok) { this.errors = checked.errors; return; }
+    try {
+      const merged = mergeRooms(source, target);
+      if (!merged.ok) { this.errors = [merged.error]; return; }
+      const draft = { ...this.draft, floors: this.draft.floors.map((floor) => floor.id === this.floor!.id ? { ...floor, rooms: floor.rooms.filter((room) => room.id !== target.id).map((room) => room.id === source.id ? merged.room : room) } : floor) };
+      const result = validatePlan(draft);
+      if (!result.ok) { this.errors = result.errors; return; }
+      const sensors = [...new Set([...bindingFor(this.bindings, source.id), ...bindingFor(this.bindings, target.id)])];
+      if (sensors.length > 100) { this.errors = ["Der verbundene Raum darf höchstens 100 Temperatursensoren haben. Entfernen Sie zunächst nicht benötigte Zuordnungen."]; return; }
+      this.draft = result.plan;
+      this.bindings = reconcileBindings(result.plan, { ...this.bindings, [source.id]: sensors }).bindings;
+      this.mergeTarget = "";
+      this.drag = null;
+      this.dirty = true;
+      this.errors = [];
+      this.notice = `„${source.name}“ und „${target.name}“ sind in der Vorschau verbunden. Name und ID von „${source.name}“ bleiben erhalten; die Sensorzuordnungen beider Räume werden übernommen. Speichern Sie die Änderung, um sie zu übernehmen.`;
+    } catch (error) { this.errors = [failureMessage(error)]; }
+  }
+
+  private deleteRoom(): void {
+    if (!this.admin || this.busy || !this.draft || !this.floor || !this.room) return;
+    const room = this.room, floorId = this.floor.id;
+    this.draft = { ...this.draft, floors: this.draft.floors.map((floor) => floor.id === floorId ? { ...floor, rooms: floor.rooms.filter((candidate) => candidate.id !== room.id) } : floor) };
+    this.bindings = reconcileBindings(this.draft, this.bindings).bindings;
+    this.selectedRoom = this.floor!.rooms[0]?.id ?? "";
+    this.mergeTarget = "";
+    this.editing = false;
+    this.drag = null;
+    this.dirty = true;
+    this.errors = [];
+    this.notice = `„${room.name}“ ist aus der Vorschau entfernt. Beim Speichern werden auch seine Sensorzuordnungen entfernt.`;
+  }
+
+  private discardChanges(): void {
+    if (!this.admin || this.busy) return;
+    this.resetDraft();
+    this.notice = "Änderungen verworfen; gespeicherter Grundriss wiederhergestellt.";
     this.errors = [];
   }
 
@@ -261,12 +313,12 @@ export class HeizlastHaCard extends LitElement {
       <header><div class="brand"><div class="brand-icon">${houseIcon}</div><div><h1>${this.config.title ?? "Mein Zuhause"}</h1><p class="subline">Grundriss & Raumtemperaturen</p></div></div><span class="badge">Prototyp</span></header>
       ${this.loading ? html`<div class="empty"><p>Projekt wird aus Home Assistant geladen …</p></div>` : html`
         <div class="toolbar"><div class="floor-tabs" aria-label="Etagen">${this.draft?.floors.map((floor) => html`<button class=${floor.id === this.floor?.id ? "active" : ""} @click=${() => this.chooseFloor(floor.id)} aria-pressed=${floor.id === this.floor?.id}>${floor.name}</button>`) ?? html`<strong style="font-size:13px">Ihr erster Grundriss</strong>`}</div>
-          <div class="actions">${this.admin && this.project ? html`<button @click=${() => this.showSetup = !this.showSetup}>${this.showSetup ? "Einrichtung schließen" : "Grundriss einrichten"}</button>${this.dirty ? html`<button class="primary" ?disabled=${this.busy} @click=${() => void this.save()}>${this.busy ? "Wird gespeichert …" : this.imported ? "Import übernehmen" : "Änderungen speichern"}</button>` : nothing}` : nothing}</div>
+          <div class="actions">${this.admin && this.project ? html`<button @click=${() => this.showSetup = !this.showSetup}>${this.showSetup ? "Einrichtung schließen" : "Grundriss einrichten"}</button>${this.dirty ? html`${!this.imported ? html`<button ?disabled=${this.busy} @click=${() => this.discardChanges()}>Änderungen verwerfen</button>` : nothing}<button class="primary" ?disabled=${this.busy} @click=${() => void this.save()}>${this.busy ? "Wird gespeichert …" : this.imported ? "Import übernehmen" : "Änderungen speichern"}</button>` : nothing}` : nothing}</div>
         </div>
         ${!this.admin ? html`<div class="notice warning">Ansicht ohne Bearbeitungsrechte. Grundriss, Räume und Sensorwerte sind sichtbar; für Import, Korrekturen und Zuordnungen benötigt Ihr Konto Administratorrechte.</div>` : nothing}
         ${this.errors.length ? html`<div class="notice error" role="alert"><strong>Bitte prüfen</strong><ul>${this.errors.map((error) => html`<li>${error}</li>`)}</ul>${this.conflict ? html`<div class="actions" style="margin-top:10px"><button @click=${() => this.exportDraft()}>Änderungen sichern</button><button @click=${() => void this.loadProject()}>Aktuelle Version laden</button></div>` : !this.project ? html`<button @click=${() => void this.loadProject()}>Erneut laden</button>` : nothing}</div>` : nothing}
         ${this.notice ? html`<div class="notice" role="status">${this.notice}</div>` : nothing}
-        ${this.imported ? html`<div class="notice warning"><strong>Vorschau · noch nicht gespeichert</strong><p>Die LLM-Antwort ist ein Vorschlag. Prüfen Sie alle ${this.draft?.floors.length} Etage(n) und Raumgrenzen. Gleiche Raum-IDs behalten ihre Sensorzuordnungen.</p><button @click=${() => { this.resetDraft(); this.notice = "Vorschau verworfen; gespeicherter Grundriss wiederhergestellt."; this.errors = []; }}>Vorschau verwerfen</button></div>` : nothing}
+        ${this.imported ? html`<div class="notice warning"><strong>Vorschau · noch nicht gespeichert</strong><p>Prüfen Sie alle ${this.draft?.floors.length} Etage(n) und Raumgrenzen. Gleiche Raum-IDs behalten ihre Sensorzuordnungen.</p><button ?disabled=${this.busy} @click=${() => this.discardChanges()}>Vorschau verwerfen</button></div>` : nothing}
         ${this.showSetup && this.admin && this.project ? this.renderSetup() : nothing}
         ${this.floor ? this.renderFloor(this.floor) : html`<div class="empty"><div class="empty-symbol">${houseIcon}</div><h2>Räume sichtbar machen</h2><p>Kopieren Sie den vorbereiteten Prompt und geben Sie Ihren Grundriss direkt an Ihr LLM weiter. Importieren Sie die JSON-Antwort und prüfen Sie die Räume vor dem Speichern.</p>${this.admin && this.project ? html`<button @click=${() => void this.sample()} ?disabled=${this.busy}>Mit Beispielgrundriss starten</button>` : nothing}</div>`}
       `}
@@ -296,19 +348,21 @@ export class HeizlastHaCard extends LitElement {
       <svg class=${`plan-svg ${this.editing ? "editing" : ""}`} viewBox=${`0 0 ${floor.canvas.width} ${floor.canvas.height}`} style=${`aspect-ratio:${floor.canvas.width}/${floor.canvas.height}`} role="group" aria-label=${`Grundriss ${floor.name}`} @pointermove=${(event: PointerEvent) => this.moveDrag(event)} @pointerup=${() => this.drag = null} @pointercancel=${() => this.drag = null}>
         ${floor.rooms.map((room) => svg`<polygon class=${`room-shape ${room.id === this.selectedRoom ? "selected" : ""}`} points=${room.polygon.map((point) => point.join(",")).join(" ")} tabindex="0" role="button" aria-label=${`${room.name} auswählen`} aria-pressed=${room.id === this.selectedRoom} @click=${() => this.selectedRoom = room.id} @keydown=${(event: KeyboardEvent) => { if (["Enter", " "].includes(event.key)) { event.preventDefault(); this.selectedRoom = room.id; } }}/>`)}
         ${floor.rooms.map((room) => {
-          const x = room.polygon.reduce((sum, point) => sum + point[0], 0) / room.polygon.length, y = room.polygon.reduce((sum, point) => sum + point[1], 0) / room.polygon.length;
+          const [x, y] = interiorLabelPoint(room.polygon);
           const width = Math.min(room.name.length * 12 + 32, floor.canvas.width * .8);
           return svg`<g class="label-group"><rect class="label-bg" x=${x - width / 2} y=${y - 20} width=${width} height="40" rx="8"/><text class="room-label" x=${x} y=${y}>${room.name.length > 40 ? `${room.name.slice(0, 39)}…` : room.name}</text></g>`;
         })}
         ${this.editing && this.room ? this.room.polygon.map((point, index) => svg`<circle class="vertex" cx=${point[0]} cy=${point[1]} r=${Math.max(floor.canvas.width / 110, 4)} aria-label=${`Punkt ${index + 1} verschieben`} @pointerdown=${(event: PointerEvent) => this.beginDrag(event, index)}/>`): nothing}
-      </svg></div><div class="legend"><span><i class="dot"></i> Raum anklicken</span><span><i class="dot selected"></i> Ausgewählter Raum</span>${this.editing ? html`<span>Punkte ziehen oder rechts numerisch ändern</span>` : nothing}</div>
+      </svg>${floor.rooms.length ? nothing : html`<p class="hint empty-floor" role="status">Diese Etage enthält keine Räume. Über die Einrichtung können Sie einen Grundriss importieren.</p>`}</div><div class="legend"><span><i class="dot"></i> Raum anklicken</span><span><i class="dot selected"></i> Ausgewählter Raum</span>${this.editing ? html`<span>Punkte ziehen oder rechts numerisch ändern</span>` : nothing}</div>
       </section><nav class="room-list" aria-label="Räume">${floor.rooms.map((room) => html`<button class=${room.id === this.selectedRoom ? "active" : ""} aria-pressed=${room.id === this.selectedRoom} @click=${() => this.selectedRoom = room.id}>${room.name}</button>`)}</nav></div><aside>${this.room ? this.renderRoom(this.room) : html`<p class="muted">Wählen Sie einen Raum im Grundriss.</p>`}</aside></div>`;
   }
 
   private renderRoom(room: Room) {
     const selected = bindingFor(this.bindings, room.id), sensors = this.hass ? temperatureSensors(this.hass) : [];
     const allSensors = [...sensors.map((state) => state.entity_id), ...selected.filter((id) => !sensors.some((state) => state.entity_id === id))];
-    return html`<div class="eyebrow">Ausgewählter Raum</div><h2 class="room-title">${room.name}</h2><div class="muted"><code>${room.id}</code></div><p class="hint">${room.area_m2 === null ? "Fläche nicht bestätigt" : `${new Intl.NumberFormat("de-DE").format(room.area_m2)} m² · Angabe aus dem Plan`}</p>
+    const otherRooms = this.floor!.rooms.filter((candidate) => candidate.id !== room.id);
+    return html`<div class="eyebrow">Ausgewählter Raum</div><h2 class="room-title">${room.name}</h2><div class="muted"><code>${room.id}</code></div><p class="hint">${room.area_m2 === null ? "Fläche nicht bestätigt" : `${new Intl.NumberFormat("de-DE").format(room.area_m2)} m² · Flächenangabe`}</p>
+      ${this.admin ? html`<div class="section"><h3>Räume bearbeiten</h3><label class="field"><span>Mit Raum verbinden</span><select aria-label="Mit Raum verbinden" .value=${this.mergeTarget} ?disabled=${this.busy || !otherRooms.length} @change=${(event: Event) => this.mergeTarget = (event.target as HTMLSelectElement).value}><option value="">Raum auswählen</option>${otherRooms.map((candidate) => html`<option value=${candidate.id}>${candidate.name}</option>`)}</select></label><div class="actions"><button ?disabled=${this.busy || !otherRooms.some((candidate) => candidate.id === this.mergeTarget)} @click=${() => this.connectRooms()}>Räume verbinden</button><button class="danger" ?disabled=${this.busy} @click=${() => this.deleteRoom()}>Raum löschen</button></div><p class="hint">Verbinden Sie benachbarte Räume derselben Etage. Schmale Zwischenräume entlang paralleler Grenzen werden geschlossen. Name und ID dieses Raums bleiben erhalten; Sensorzuordnungen werden zusammengeführt. Bekannte Flächen werden addiert, sonst bleibt die Fläche unbestätigt. Änderungen werden erst beim Speichern übernommen.</p></div>` : nothing}
       <div class="section"><h3>Raumtemperatur</h3>${selected.length ? selected.map((id) => {
         const state = this.hass?.states[id], label = temperatureLabel(state);
         return html`<div class="sensor-reading"><span><span class="sensor-name">${state?.attributes.friendly_name ?? id}</span><span class="sensor-id">${id}</span></span><strong class=${!state || ["unknown", "unavailable"].includes(state.state) || !Number.isFinite(Number(state.state)) ? "status" : ""}>${label}</strong></div>`;
@@ -324,7 +378,14 @@ export class HeizlastHaCard extends LitElement {
 
   private renderConfirmation() {
     const oldRooms = this.project?.plan?.floors.flatMap((floor) => floor.rooms) ?? [];
-    return html`<div class="dialog-backdrop" @keydown=${(event: KeyboardEvent) => this.dialogKey(event)}><section class="dialog" role="dialog" aria-modal="true" aria-label="Entfernte Räume bestätigen"><h2>Entfernte Raum-IDs prüfen</h2><p>Diese Räume kommen im neuen Grundriss nicht mehr vor. Ihre bisherigen Sensorzuordnungen werden beim Übernehmen entfernt. Eine geänderte ID gilt als neuer Raum.</p><div class="removed">${this.confirmRemoved?.map((id) => html`<p><strong>${oldRooms.find((room) => room.id === id)?.name ?? id}</strong> · <code>${id}</code><br/>${bindingFor(this.project?.bindings ?? {}, id).length ? `Zugeordnete Sensoren: ${bindingFor(this.project!.bindings, id).join(", ")}` : "Keine Sensorzuordnung"}</p>`)}</div><div class="dialog-actions"><button ?disabled=${this.busy} @click=${() => this.closeDialog()}>Abbrechen</button><button class="primary" ?disabled=${this.busy} @click=${() => void this.save(true)}>Entfernung bestätigen & speichern</button></div></section></div>`;
+    const nextRooms = this.draft?.floors.flatMap((floor) => floor.rooms) ?? [];
+    return html`<div class="dialog-backdrop" @keydown=${(event: KeyboardEvent) => this.dialogKey(event)}><section class="dialog" role="dialog" aria-modal="true" aria-label="Entfernte Räume bestätigen"><h2>Entfernte Raum-IDs prüfen</h2><p>Diese Raum-IDs kommen im neuen Grundriss nicht mehr vor. Ihre bisherigen Zuordnungen entfallen. Beim Verbinden übernommene Sensoren bleiben dem verbleibenden Raum zugeordnet. Eine geänderte ID gilt als neuer Raum.</p><div class="removed">${this.confirmRemoved?.map((id) => {
+      const sensors = bindingFor(this.project?.bindings ?? {}, id);
+      return html`<p><strong>${oldRooms.find((room) => room.id === id)?.name ?? id}</strong> · <code>${id}</code><br/>${sensors.length ? sensors.map((sensor) => {
+        const assigned = nextRooms.filter((room) => bindingFor(this.bindings, room.id).includes(sensor)).map((room) => room.name);
+        return html`<span class="removed-sensor">${sensor} · ${assigned.length ? `Weiterhin zugeordnet: ${assigned.join(", ")}` : "Zuordnung wird entfernt"}</span>`;
+      }) : "Keine Sensorzuordnung"}</p>`;
+    })}</div><div class="dialog-actions"><button ?disabled=${this.busy} @click=${() => this.closeDialog()}>Abbrechen</button><button class="primary" ?disabled=${this.busy} @click=${() => void this.save(true)}>Entfernung bestätigen & speichern</button></div></section></div>`;
   }
 }
 

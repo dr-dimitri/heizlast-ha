@@ -59,6 +59,20 @@ def test_plan_is_validated_and_copied(plan, validator):
     assert plan["floors"][0]["rooms"][0]["name"] == "Links"
 
 
+def test_empty_floor_preserves_canvas_and_drops_deleted_room_bindings(plan, validator):
+    previous = deepcopy(plan)
+    plan["floors"][0]["rooms"] = []
+    assert validate_plan(plan, validator) == plan
+    with pytest.raises(ProjectError, match="eg_links, eg_rechts") as error:
+        validate_removals(previous, plan, [])
+    assert error.value.code == "confirmation_required"
+    validate_removals(previous, plan, ["eg_links", "eg_rechts"])
+    assert (
+        validate_bindings(plan, {}, {"eg_links": ["sensor.deleted"]}, lambda _: False)
+        == {}
+    )
+
+
 @pytest.mark.parametrize("version", ["0.1", "1.0", "2.0", 1.0, None])
 def test_unsupported_schema_versions(plan, validator, version):
     plan["schema_version"] = version
@@ -215,6 +229,24 @@ def test_existing_entity_cannot_be_moved_to_new_room_without_validation(plan):
             {"eg_rechts": ["sensor.deleted"]},
             {"eg_links": ["sensor.deleted"]},
             lambda _: False,
+        )
+
+
+@pytest.mark.parametrize("target_id", ["eg_links", "eg_combined"])
+def test_removed_room_sensors_can_be_transferred_without_current_state(plan, target_id):
+    """Previously assigned sensors survive a merge even after disappearing in HA."""
+    plan["floors"][0]["rooms"].pop()
+    plan["floors"][0]["rooms"][0]["id"] = target_id
+    previous = {"eg_rechts": ["sensor.deleted", "sensor.changed"]}
+    assert validate_bindings(
+        plan,
+        {target_id: ["sensor.deleted", "sensor.changed"]},
+        previous,
+        lambda _: False,
+    ) == {target_id: ["sensor.deleted", "sensor.changed"]}
+    with pytest.raises(ProjectError, match="sensor.unknown.*Temperatur"):
+        validate_bindings(
+            plan, {target_id: ["sensor.unknown"]}, previous, lambda _: False
         )
 
 

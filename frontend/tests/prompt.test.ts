@@ -11,16 +11,19 @@ describe("LLM prompt", () => {
     const prompt = buildPrompt("eg", "Erdgeschoss");
     for (const value of ["1000", "1.1", "Erdgeschoss", '"eg"', JSON.stringify(schema, null, 2)]) expect(prompt).toContain(value);
     expect(prompt).not.toContain("{{"); expect(prompt).toContain("Nur ein Formatbeispiel"); expect(prompt).toContain("area_m2");
+    expect(prompt).not.toContain("Die LLM-Antwort ist ein Vorschlag");
+    expect(prompt).not.toContain("Prüfe anschließend im Dashboard");
+    expect(prompt).not.toContain("Für Anzeige, Korrekturen und Sensorzuordnungen genügt danach das JSON");
   });
   it("escapes interpolated metadata and bounds the generated example IDs", () => {
     const prompt = buildPrompt("a".repeat(64), 'Etage "oben"\nNoch eine Zeile');
     expect(prompt).toContain('"Etage \\"oben\\"\\nNoch eine Zeile"');
-    const sampleText = prompt.split("zu ersetzen:\n")[1].split("\n\nDie LLM-Antwort")[0];
+    const sampleText = prompt.split("zu ersetzen:\n")[1];
     expect(JSON.parse(sampleText).floors[0].rooms[0].id.length).toBeLessThanOrEqual(64);
   });
   it("produces a schema-valid standalone example without a background", () => {
     const prompt = buildPrompt("eg", "Erdgeschoss");
-    const example = JSON.parse(prompt.split("zu ersetzen:\n")[1].split("\n\nDie LLM-Antwort")[0]);
+    const example = JSON.parse(prompt.split("zu ersetzen:\n")[1]);
     expect(validatePlan(example).ok).toBe(true);
     expect(example.floors[0]).not.toHaveProperty("background");
     expect(prompt).toContain("ursprüngliche Grundriss");

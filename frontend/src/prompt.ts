@@ -40,9 +40,7 @@ Verbindliches vollständiges JSON-Schema:
 ${JSON.stringify(schema, null, 2)}
 
 Nur ein Formatbeispiel – keine erkannten Räume oder realen Raumgrenzen. Die Beispielzeichenfläche, Beispielpunkte und der Beispielraum sind durch die tatsächliche Anordnung der Räume des beigefügten Grundrisses zu ersetzen:
-${JSON.stringify(sample, null, 2)}
-
-Die LLM-Antwort ist ein Vorschlag. Prüfe anschließend im Dashboard die dargestellten Raumkonturen, Namen und Anordnung, bevor du den Import übernimmst. Für Anzeige, Korrekturen und Sensorzuordnungen genügt danach das JSON.`;
+${JSON.stringify(sample, null, 2)}`;
 }
 
 export async function copyPrompt(prompt: string): Promise<boolean> {

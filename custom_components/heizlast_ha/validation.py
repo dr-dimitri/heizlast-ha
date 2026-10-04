@@ -127,13 +127,19 @@ def validate_bindings(
     previous: JsonObject,
     is_temperature_sensor: Callable[[str], bool],
 ) -> dict[str, list[str]]:
-    """Validate new selections and preserve omitted bindings for stable room IDs."""
+    """Validate selections, preserving sensors of stable and confirmed removed rooms."""
     if not isinstance(bindings, dict):
         raise ProjectError("bindings: Sensorzuordnungen müssen ein Objekt sein.")
     ids = room_ids(plan)
     for key in bindings:
         if key not in ids:
             raise ProjectError(f"bindings.{key}: Der Raum ist nicht im Grundriss.")
+    transferable = {
+        entity_id
+        for room_id, entity_ids in previous.items()
+        if room_id not in ids
+        for entity_id in entity_ids
+    }
     result: dict[str, list[str]] = {}
     for room_id in ids:
         selected = bindings.get(room_id, previous.get(room_id, []))
@@ -147,8 +153,10 @@ def validate_bindings(
                 raise ProjectError(
                     f"bindings.{room_id}: Doppelte Sensor-ID {entity_id}."
                 )
-            if entity_id not in previous.get(room_id, []) and not is_temperature_sensor(
-                entity_id
+            if (
+                entity_id not in previous.get(room_id, [])
+                and entity_id not in transferable
+                and not is_temperature_sensor(entity_id)
             ):
                 raise ProjectError(
                     f"bindings.{room_id}: {entity_id} ist kein vorhandener "

@@ -1,7 +1,8 @@
 # heizlast-ha
 
 Home-Assistant-Integration mit einer interaktiven digitalen Grundrisskarte.
-Version **0.6.1** erzeugt einen kopierbaren Prompt für ein externes LLM ohne
+Version **0.7.0** ermöglicht das Verbinden und Löschen importierter Räume und
+erzeugt einen kopierbaren Prompt für ein externes LLM ohne
 Bild-Upload. Der importierte digitale Grundriss enthält Raumkonturen, Namen und
 Zeichenfläche vollständig; der ursprüngliche Plan wird danach nicht benötigt.
 Das Dashboard **Heizlast HA** steht automatisch in der HA-Seitenleiste bereit.
@@ -110,6 +111,9 @@ Beispiele; daraus nur den Inhalt von `custom_components/heizlast_ha/` nach
 5. Einen Raum anklicken. Im Korrekturmodus können Raumnamen und Eckpunkte
    geändert, Punkte hinzugefügt oder entfernt werden. Änderungen speichern.
    Anzeige und Korrekturen benötigen ausschließlich die importierten Daten.
+   Unter **Räume bearbeiten** einen zweiten Raum derselben Etage auswählen und
+   **Räume verbinden** verwenden oder den ausgewählten **Raum löschen**.
+   Das funktioniert direkt in der Importvorschau und später im gespeicherten Plan.
 6. Dem Raum einen oder mehrere Home-Assistant-Temperatursensoren zuordnen. Jeder
    Sensor wird mit seinem aktuellen Wert und seiner Einheit angezeigt. Es
    erfolgt keine ungeprüfte Mittelung unterschiedlicher Einheiten. Nicht
@@ -128,6 +132,23 @@ zuerst neu laden und die Änderungen erneut prüfen. Normale Benutzer können di
 gespeicherten Räume und Temperaturen ansehen; Konfigurationsänderungen erfordern
 Administratorrechte.
 
+Beim Verbinden bleiben Name und ID des ausgewählten Raums erhalten. Seine
+Kontur umfasst anschließend beide Räume; gemeinsame Grenzen und schmale
+Wandabstände entlang annähernd paralleler Kanten werden verbunden. Entfernte,
+nur an einem Eckpunkt anliegende Räume, Konturen mit eingeschlossenen Aussparungen
+und Verbindungen durch andere Räume werden abgelehnt. Bei Bedarf zuerst die
+Raumgrenzen korrigieren. Die Sensorzuordnungen werden ohne Duplikate
+zusammengeführt, auch bei inzwischen entfernten Sensoren. Sind beide
+Flächenangaben bekannt, werden sie addiert; sonst bleibt die Fläche unbestätigt.
+Die Konturkoordinaten werden dabei nicht als metrischer Maßstab verwendet.
+
+Beim Löschen entfallen nur der ausgewählte Raum und seine Zuordnungen; auch
+nach dem letzten Raum bleiben Etage und Zeichenfläche erhalten. Verbinden und
+Löschen ändern zunächst die Vorschau. **Änderungen verwerfen** beziehungsweise
+**Vorschau verwerfen** stellt den gespeicherten Stand wieder her. Beim Speichern
+bereits vorhandener Räume ist die Entfernung ihrer IDs ausdrücklich zu
+bestätigen; der Dialog zeigt, welche Sensoren weiterhin zugeordnet sind.
+
 ## Datenformat und Speicherung
 
 [`schemas/floorplan-v1.schema.json`](schemas/floorplan-v1.schema.json) ist der
@@ -136,6 +157,8 @@ Formatdefinition; eine bytegleiche Kopie liegt im Integrationspaket. Version
 `1.1` enthält keine Bildreferenzen; das frühere bildbasierte Format `1.0` wird
 nicht mehr verwendet und ist nicht importierbar. Das Format
 erlaubt bis zu 32 Etagen, 500 Räume pro Etage und 500 Eckpunkte pro Raum.
+Etagen dürfen nach Raumlöschungen leer sein; bestehende Daten bleiben mit
+Schema-Version `1.1` kompatibel.
 
 Koordinaten beziehen sich auf die im JSON definierte Zeichenfläche: Ursprung
 links oben, x nach rechts und y nach unten. Der Prompt lässt das LLM die längere

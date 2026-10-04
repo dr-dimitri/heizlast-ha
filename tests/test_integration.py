@@ -247,6 +247,108 @@ async def test_room_removal_requires_confirmation(hass, entry, hass_ws_client):
     assert "eg_rechts" not in saved["result"]["bindings"]
 
 
+async def test_last_room_deletion_retains_empty_floor_and_survives_reload(
+    hass, entry, hass_ws_client
+):
+    """Deleting the final room requires consent and persists its empty floor."""
+    ws = await hass_ws_client(hass)
+    plan = standalone_plan()
+    plan["floors"][0]["rooms"].pop()
+    hass.states.async_set("sensor.room", "22", {"device_class": "temperature"})
+    initial = await send(
+        ws,
+        2,
+        "save_project",
+        revision=0,
+        plan=plan,
+        bindings={"eg_links": ["sensor.room"]},
+    )
+    assert initial["success"]
+    storage_path = Path(hass.config.path(".storage", STORAGE_KEY))
+    persisted = storage_path.read_bytes()
+    plan["floors"][0]["rooms"] = []
+    refused = await send(ws, 3, "save_project", revision=1, plan=plan, bindings={})
+    assert refused["error"]["code"] == "confirmation_required"
+    assert get_project(hass).snapshot() == initial["result"]
+    assert storage_path.read_bytes() == persisted
+
+    saved = await send(
+        ws,
+        4,
+        "save_project",
+        revision=1,
+        plan=plan,
+        bindings={},
+        confirmed_removed_room_ids=["eg_links"],
+    )
+    assert saved["success"]
+    assert saved["result"] == {"revision": 2, "plan": plan, "bindings": {}}
+    assert json.loads(storage_path.read_text())["data"] == saved["result"]
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    assert get_project(hass).snapshot() == saved["result"]
+    fresh = Project(hass)
+    await fresh.async_load()
+    assert fresh.snapshot() == saved["result"]
+
+
+async def test_room_merge_preserves_removed_and_changed_temperature_sensors(
+    hass, entry, hass_ws_client
+):
+    """A confirmed merge transfers prior sensors even when no longer selectable."""
+    ws = await hass_ws_client(hass)
+    plan = standalone_plan()
+    for entity_id in ["sensor.target", "sensor.deleted", "sensor.changed"]:
+        hass.states.async_set(entity_id, "21", {"device_class": "temperature"})
+    initial = await send(
+        ws,
+        2,
+        "save_project",
+        revision=0,
+        plan=plan,
+        bindings={
+            "eg_links": ["sensor.target"],
+            "eg_rechts": ["sensor.deleted", "sensor.changed"],
+        },
+    )
+    assert initial["success"]
+    hass.states.async_remove("sensor.deleted")
+    hass.states.async_set("sensor.changed", "45", {"device_class": "humidity"})
+    plan["floors"][0]["rooms"].pop()
+    plan["floors"][0]["rooms"][0].update(
+        name="Verbunden", polygon=[[0, 0], [100, 0], [100, 100], [0, 100]]
+    )
+    transferred = {"eg_links": ["sensor.target", "sensor.deleted", "sensor.changed"]}
+    refused = await send(
+        ws, 3, "save_project", revision=1, plan=plan, bindings=transferred
+    )
+    assert refused["error"]["code"] == "confirmation_required"
+    invalid = await send(
+        ws,
+        4,
+        "save_project",
+        revision=1,
+        plan=plan,
+        bindings={"eg_links": [*transferred["eg_links"], "sensor.unknown"]},
+        confirmed_removed_room_ids=["eg_rechts"],
+    )
+    assert invalid["error"]["code"] == "invalid_project"
+    assert get_project(hass).snapshot() == initial["result"]
+    saved = await send(
+        ws,
+        5,
+        "save_project",
+        revision=1,
+        plan=plan,
+        bindings=transferred,
+        confirmed_removed_room_ids=["eg_rechts"],
+    )
+    assert saved["success"]
+    assert saved["result"] == {"revision": 2, "plan": plan, "bindings": transferred}
+    fresh = Project(hass)
+    await fresh.async_load()
+    assert fresh.snapshot() == saved["result"]
+
+
 async def test_concurrent_stale_saves_are_rejected(hass, entry):
     project = get_project(hass)
     plan = standalone_plan()

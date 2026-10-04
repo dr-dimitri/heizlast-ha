@@ -86,3 +86,11 @@ def test_schema_accepts_multiple_floors_without_discarding_data():
     plan["floors"].append(upstairs)
     Draft202012Validator(schema).validate(plan)
     assert len(plan["floors"]) == 2
+
+
+def test_schema_accepts_empty_floor_after_last_room_is_deleted():
+    schema = json.loads(SCHEMA.read_text())
+    plan = json.loads(EXAMPLE.read_text())
+    plan["floors"][0]["rooms"] = []
+    Draft202012Validator(schema).validate(plan)
+    assert plan["schema_version"] == "1.1"
