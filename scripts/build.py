@@ -79,7 +79,13 @@ def build(root: Path, output: Path, build_id: str | None = None) -> Path:
         for name in sorted(filter(None, tracked)):
             if name.startswith(prefix):
                 hacs_files.append((root / name, name.removeprefix(prefix)))
-        required = {"__init__.py", "manifest.json", "frontend.py", "brand/icon.png"}
+        required = {
+            "__init__.py",
+            "manifest.json",
+            "frontend.py",
+            "repairs.py",
+            "brand/icon.png",
+        }
         if not required <= {name for _, name in hacs_files}:
             raise ValueError("HACS integration runtime files must be tracked.")
         if not any(

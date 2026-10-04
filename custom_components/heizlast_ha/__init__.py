@@ -10,6 +10,7 @@ from .api import async_register_api
 from .const import DOMAIN
 from .frontend import async_register_card, unregister_card
 from .project import Project
+from .repairs import async_check_dashboard_update, async_clear_dashboard_issues
 from .validation import ProjectError
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
@@ -32,9 +33,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: HeizlastConfigEntry) -> 
         await project.async_load()
     except (OSError, ProjectError) as err:
         raise ConfigEntryNotReady(str(err)) from err
-    hass.data[DOMAIN]["card_url"] = await async_register_card(hass)
+    dashboard = await async_register_card(hass)
+    hass.data[DOMAIN]["card_url"] = dashboard.url
+    hass.data[DOMAIN]["dashboard"] = dashboard
     entry.runtime_data = project
     hass.data[DOMAIN]["project"] = project
+    async_check_dashboard_update(hass, entry, dashboard)
     return True
 
 
@@ -42,5 +46,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: HeizlastConfigEntry) ->
     """Finish pending mutations before removing this entry from the APIs."""
     await entry.runtime_data.async_shutdown()
     unregister_card(hass)
+    hass.data[DOMAIN].pop("dashboard", None)
+    async_clear_dashboard_issues(hass)
     hass.data[DOMAIN].pop("project", None)
     return True
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: HeizlastConfigEntry) -> None:
+    """Remove pending notices even when deleting an unloaded entry."""
+    async_clear_dashboard_issues(hass)

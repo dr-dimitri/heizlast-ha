@@ -136,7 +136,8 @@ def test_hacs_build_requires_tracked_repository_manifest(hacs_repository):
 
 
 @pytest.mark.parametrize(
-    "omit", ["manifest.json", "www/heizlast-ha-card.js", "build-info.json"]
+    "omit",
+    ["manifest.json", "repairs.py", "www/heizlast-ha-card.js", "build-info.json"],
 )
 def test_release_refuses_incomplete_installation(hacs_repository, omit):
     root = hacs_repository

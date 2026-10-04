@@ -1,7 +1,7 @@
 # heizlast-ha
 
-Home-Assistant-Integration mit einer interaktiven Grundrisskarte. Version **0.3.0**
-ermöglicht die HACS-Installation einschließlich automatisch geladener Karte.
+Home-Assistant-Integration mit einer interaktiven Grundrisskarte. Version **0.4.0**
+ergänzt eine Reparaturmeldung zum Neuladen nach Änderungen der Dashboard-Karte.
 Der Prototyp aus [Issue #1](https://github.com/dr-dimitri/heizlast-ha/issues/1)
 enthält PNG-/JPEG-Grundrisse, JSON-Raumflächen, Korrekturmodus, mehrere Etagen,
 zugeordnete Temperatursensoren und einen kopierbaren Prompt für ein externes LLM.
@@ -35,6 +35,23 @@ angelegter Ressourceneintrag sind nicht erforderlich. Dies funktioniert mit
 Updates ebenfalls über HACS herunterladen, anschließend Home Assistant neu
 starten und die Browserseite neu laden. Grundrisse, Bilder und Sensorzuordnungen
 liegen weiterhin in `.storage` und bleiben beim Update erhalten.
+
+### Reparaturmeldung nach Dashboard-Updates
+
+Wenn sich die mitgelieferte Dashboard-Karte geändert hat, erscheint nach dem
+Neustart unter **Einstellungen → System → Reparaturen** eine Heizlast-HA-Meldung
+mit der neuen Version. Die Reparatur öffnen, alle geöffneten Dashboards im
+Browser neu laden (**F5** oder die Schaltfläche zum Neuladen) und anschließend
+die Reparatur bestätigen. In der Companion-App das Dashboard schließen und
+erneut öffnen; bei einer weiterhin alten Karte den Frontend-Cache in den
+App-Einstellungen zurücksetzen.
+
+Die Meldung bleibt bis zur Bestätigung ausstehend und wird nach einem Neustart
+erneut angezeigt. Die Bestätigung gilt für die konkrete Dashboard-Datei; bei
+der nächsten Änderung erscheint eine neue Meldung. Eine Erstinstallation sowie
+Updates mit unveränderter Karte erzeugen keine Reparatur. Beim ersten Wechsel
+von einer älteren Version ohne diese Erkennung erscheint einmalig die Meldung.
+Grundrisse, Bilder und Sensorzuordnungen bleiben unverändert.
 
 Bei einem Wechsel von Version 0.2.0 zuerst den bisherigen Ressourceneintrag
 `/local/heizlast-ha/heizlast-ha-card.js?...` aus den Dashboard-Ressourcen bzw.

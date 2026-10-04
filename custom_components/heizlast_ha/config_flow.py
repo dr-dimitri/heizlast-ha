@@ -5,7 +5,7 @@ from typing import Any
 import voluptuous as vol
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 
-from .const import DOMAIN
+from .const import CONF_DASHBOARD_INITIAL_INSTALL, DOMAIN
 
 
 class HeizlastConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -22,5 +22,7 @@ class HeizlastConfigFlow(ConfigFlow, domain=DOMAIN):
         if self._async_current_entries():
             return self.async_abort(reason="single_instance_allowed")
         if user_input is not None:
-            return self.async_create_entry(title="Heizlast HA", data={})
+            return self.async_create_entry(
+                title="Heizlast HA", data={CONF_DASHBOARD_INITIAL_INSTALL: True}
+            )
         return self.async_show_form(step_id="user", data_schema=vol.Schema({}))
