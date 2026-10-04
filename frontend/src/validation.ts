@@ -1,7 +1,7 @@
 import Ajv from "ajv/dist/2020";
 import polygonClipping from "polygon-clipping";
 import schema from "../../schemas/floorplan-v1.schema.json";
-import { type Floorplan, type ImageMetadata, type Point, clone } from "./types";
+import { type Floorplan, type Point, clone } from "./types";
 
 const validateSchema = new Ajv({ allErrors: true, strict: false, strictNumbers: true }).compile(schema);
 const EPSILON = 1e-7;
@@ -50,7 +50,7 @@ export function overlap(a: Point[], b: Point[]): boolean {
 export type ValidationResult = { ok: true; plan: Floorplan } | { ok: false; errors: string[] };
 
 /** Schema, prompt and both import paths share the same versioned definition. */
-export function validatePlan(input: unknown, images: ImageMetadata[]): ValidationResult {
+export function validatePlan(input: unknown): ValidationResult {
   if (!validateSchema(input)) {
     const errors = (validateSchema.errors ?? []).slice(0, 12).map((error) => {
       const path = error.instancePath || "/";
@@ -69,9 +69,6 @@ export function validatePlan(input: unknown, images: ImageMetadata[]): Validatio
     ids.add(floor.id);
   }
   for (const floor of plan.floors) {
-    const image = images.find((candidate) => candidate.background === floor.background);
-    if (!image) errors.push(`Etage „${floor.name}“: Das Hintergrundbild ist nicht hochgeladen. Laden Sie das zugehörige Bild und verwenden Sie dessen Bildreferenz.`);
-    else if (image.width !== floor.canvas.width || image.height !== floor.canvas.height) errors.push(`Etage „${floor.name}“: Bildabmessungen stimmen nicht mit ${image.width} × ${image.height} Pixel überein.`);
     const validRooms: typeof floor.rooms = [];
     for (const room of floor.rooms) {
       const prefix = `Raum „${room.name}“ (${room.id})`;
@@ -79,7 +76,7 @@ export function validatePlan(input: unknown, images: ImageMetadata[]): Validatio
       ids.add(room.id);
       const error = geometryError(room.polygon);
       if (error) errors.push(`${prefix}: ${error}`);
-      if (room.polygon.some(([x, y]) => x < 0 || y < 0 || x > floor.canvas.width || y > floor.canvas.height)) errors.push(`${prefix}: Koordinaten liegen außerhalb des Bildes.`);
+      if (room.polygon.some(([x, y]) => x < 0 || y < 0 || x > floor.canvas.width || y > floor.canvas.height)) errors.push(`${prefix}: Koordinaten liegen außerhalb der Zeichenfläche.`);
       if (!error) validRooms.push(room);
     }
     for (let i = 0; i < validRooms.length; i++) {
@@ -91,9 +88,9 @@ export function validatePlan(input: unknown, images: ImageMetadata[]): Validatio
   return errors.length ? { ok: false, errors } : { ok: true, plan: clone(plan) };
 }
 
-export function parseImport(text: string, images: ImageMetadata[]): ValidationResult {
+export function parseImport(text: string): ValidationResult {
   if (new TextEncoder().encode(text).byteLength > 2 * 1024 * 1024) return { ok: false, errors: ["Die JSON-Datei darf höchstens 2 MiB groß sein."] };
-  try { return validatePlan(JSON.parse(text), images); }
+  try { return validatePlan(JSON.parse(text)); }
   catch { return { ok: false, errors: ["Das JSON lässt sich nicht lesen. Bitte ein JSON-Objekt ohne Markdown, Kommentare oder zusätzlichen Text einfügen."] }; }
 }
 

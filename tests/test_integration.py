@@ -1,10 +1,8 @@
 """Run the config flow, APIs and persistence in real Home Assistant instances."""
 
 import asyncio
-import base64
 import json
 from copy import deepcopy
-from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 
@@ -13,9 +11,7 @@ from homeassistant import config_entries, loader
 from homeassistant.components.repairs import repairs_flow_manager
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.storage import Store
-from homeassistant.setup import async_setup_component
 from homeassistant.util.file import WriteError
-from PIL import Image
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     async_test_home_assistant,
@@ -56,23 +52,15 @@ async def entry(hass):
     return config_entry
 
 
-def encoded_image(image_format="PNG"):
-    """Return a small real image as the upload command's raw base64."""
-    stream = BytesIO()
-    Image.new("RGB", (100, 100), "white").save(stream, format=image_format)
-    return base64.b64encode(stream.getvalue()).decode()
-
-
-def plan_for(image):
-    """Create two adjacent valid room polygons for the uploaded background."""
+def standalone_plan():
+    """Create two adjacent room polygons without a source image."""
     return {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "floors": [
             {
                 "id": "eg",
                 "name": "Erdgeschoss",
-                "background": image["background"],
-                "canvas": {"width": image["width"], "height": image["height"]},
+                "canvas": {"width": 100, "height": 100},
                 "rooms": [
                     {
                         "id": "eg_links",
@@ -161,7 +149,7 @@ async def test_dashboard_reload_confirmation_survives_restart(
         await restarted.async_stop(force=True)
 
 
-async def test_websocket_upload_import_bindings_and_invalid_import(
+async def test_websocket_standalone_import_bindings_and_invalid_import(
     hass, entry, hass_ws_client
 ):
     ws = await hass_ws_client(hass)
@@ -170,22 +158,13 @@ async def test_websocket_upload_import_bindings_and_invalid_import(
         "revision": 0,
         "plan": None,
         "bindings": {},
-        "images": [],
     }
-    uploaded = await send(ws, 2, "upload_image", name="plan.png", data=encoded_image())
-    assert uploaded["success"]
-    image = uploaded["result"]
-    assert image["width"] == 100 and image["height"] == 100
-    after_upload = await send(ws, 3, "get_project")
-    assert after_upload["result"]["revision"] == 0
-    assert after_upload["result"]["images"] == [image]
-
     hass.states.async_set(
         "sensor.room",
         "23.5",
         {"device_class": "temperature", "unit_of_measurement": "°C"},
     )
-    plan = plan_for(image)
+    plan = standalone_plan()
     saved = await send(
         ws,
         4,
@@ -217,8 +196,7 @@ async def test_reimport_preserves_stable_bindings_and_removed_entity(
     hass, entry, hass_ws_client
 ):
     ws = await hass_ws_client(hass)
-    uploaded = await send(ws, 1, "upload_image", name="plan.png", data=encoded_image())
-    plan = plan_for(uploaded["result"])
+    plan = standalone_plan()
     hass.states.async_set("sensor.room", "unknown", {"device_class": "temperature"})
     saved = await send(
         ws,
@@ -250,8 +228,7 @@ async def test_reimport_preserves_stable_bindings_and_removed_entity(
 
 async def test_room_removal_requires_confirmation(hass, entry, hass_ws_client):
     ws = await hass_ws_client(hass)
-    uploaded = await send(ws, 1, "upload_image", name="plan.png", data=encoded_image())
-    plan = plan_for(uploaded["result"])
+    plan = standalone_plan()
     await send(ws, 2, "save_project", revision=0, plan=plan, bindings={})
     plan["floors"][0]["rooms"].pop()
     refused = await send(ws, 3, "save_project", revision=1, plan=plan, bindings={})
@@ -272,8 +249,7 @@ async def test_room_removal_requires_confirmation(hass, entry, hass_ws_client):
 
 async def test_concurrent_stale_saves_are_rejected(hass, entry):
     project = get_project(hass)
-    image = await project.async_upload("plan.png", encoded_image())
-    plan = plan_for(image)
+    plan = standalone_plan()
     changed = deepcopy(plan)
     changed["floors"][0]["rooms"][0]["name"] = "Zweite Änderung"
     results = await asyncio.gather(
@@ -296,8 +272,7 @@ async def test_disk_write_failure_does_not_publish_unpersisted_changes(
     hass, entry, hass_ws_client
 ):
     ws = await hass_ws_client(hass)
-    uploaded = await send(ws, 1, "upload_image", name="plan.png", data=encoded_image())
-    plan = plan_for(uploaded["result"])
+    plan = standalone_plan()
     saved = await send(ws, 2, "save_project", revision=0, plan=plan, bindings={})
     before = saved["result"]
     plan["floors"][0]["name"] = "Nicht gespeichert"
@@ -316,9 +291,8 @@ async def test_disk_write_failure_does_not_publish_unpersisted_changes(
 
 async def test_project_survives_reload_and_a_new_home_assistant_instance(hass, entry):
     project = get_project(hass)
-    image = await project.async_upload("plan.png", encoded_image())
     hass.states.async_set("sensor.room", "unavailable", {"device_class": "temperature"})
-    plan = plan_for(image)
+    plan = standalone_plan()
     expected = await project.async_save(0, plan, {"eg_links": ["sensor.room"]}, [])
     assert await hass.config_entries.async_reload(entry.entry_id)
     assert get_project(hass) is not project
@@ -336,7 +310,7 @@ async def test_project_survives_reload_and_a_new_home_assistant_instance(hass, e
         await restarted.async_block_till_done()
         recovered = get_project(restarted)
         assert recovered.snapshot() == expected
-        assert (recovered.image_dir / image["background"].rsplit("/", 1)[1]).is_file()
+        assert not Path(restarted.config.path(".storage", f"{DOMAIN}_images")).exists()
         assert await restarted.config_entries.async_unload(replacement.entry_id)
         await restarted.async_stop(force=True)
 
@@ -359,56 +333,21 @@ async def test_read_access_and_admin_only_mutations(
     ws = await hass_ws_client(hass, access_token=hass_read_only_access_token)
     read = await send(ws, 1, "get_project")
     assert read["success"]
-    upload = await send(ws, 2, "upload_image", name="plan.png", data=encoded_image())
-    assert upload["error"]["code"] == "unauthorized"
     save = await send(ws, 3, "save_project", revision=0, plan=None, bindings={})
     assert save["error"]["code"] == "unauthorized"
-    assert get_project(hass).snapshot()["images"] == []
+    assert get_project(hass).snapshot()["plan"] is None
 
 
-async def test_private_image_authentication_and_signed_path(
-    hass, entry, hass_ws_client, hass_client, hass_client_no_auth
-):
-    assert await async_setup_component(hass, "auth", {})
-    ws = await hass_ws_client(hass)
-    uploaded = await send(ws, 1, "upload_image", name="plan.png", data=encoded_image())
-    image = uploaded["result"]
-    anonymous = await hass_client_no_auth()
-    denied = await anonymous.get(image["background"])
-    assert denied.status == 401
-    authenticated = await hass_client()
-    allowed = await authenticated.get(image["background"])
-    assert allowed.status == 200
-    assert allowed.headers["Content-Type"] == "image/png"
-    assert await allowed.read() == base64.b64decode(encoded_image())
-
-    await ws.send_json(
-        {"id": 2, "type": "auth/sign_path", "path": image["background"], "expires": 60}
-    )
-    signed = await ws.receive_json()
-    assert signed["success"]
-    image_response = await anonymous.get(signed["result"]["path"])
-    assert image_response.status == 200
-    assert image_response.headers["Cache-Control"] == "private, no-store"
-    assert (await anonymous.get(f"{image['background']}-unknown")).status == 401
-    assert (await authenticated.get(f"{image['background']}-unknown")).status == 404
-
-
-async def test_bad_upload_leaves_project_and_disk_unchanged(
+async def test_image_upload_command_is_no_longer_registered(
     hass, entry, hass_ws_client
 ):
     ws = await hass_ws_client(hass)
-    invalid = await send(ws, 1, "upload_image", name="bad.png", data="bm90IGFuIGltYWdl")
-    assert invalid["error"]["code"] == "invalid_project"
-    assert get_project(hass).snapshot()["images"] == []
+    response = await send(ws, 1, "upload_image", name="plan.png", data="unused")
+    assert response["error"]["code"] == "unknown_command"
+    assert get_project(hass).snapshot() == {
+        "revision": 0,
+        "plan": None,
+        "bindings": {},
+    }
     assert not Path(hass.config.path(".storage", STORAGE_KEY)).exists()
-
-
-async def test_missing_image_cannot_be_committed(hass, entry):
-    project = get_project(hass)
-    image = await project.async_upload("plan.png", encoded_image())
-    path = project.image_dir / image["background"].rsplit("/", 1)[1]
-    await hass.async_add_executor_job(path.unlink)
-    with pytest.raises(ProjectError, match="Bild fehlt"):
-        await project.async_save(0, plan_for(image), {}, [])
-    assert project.snapshot()["plan"] is None
+    assert not Path(hass.config.path(".storage", f"{DOMAIN}_images")).exists()

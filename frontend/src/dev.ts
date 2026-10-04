@@ -2,19 +2,16 @@
 import "./card";
 import type { HeizlastHaCard } from "./card";
 import samplePlan from "../../examples/ground-floor.json";
-import sampleImage from "../../examples/ground-floor.png?inline";
-import { clone, type Floorplan, type HomeAssistant, type ImageMetadata, type Project } from "./types";
+import { clone, type Floorplan, type HomeAssistant, type Project } from "./types";
 
 if (!import.meta.env.DEV) throw new Error("Development harness must not run in production.");
 
-const storageKey = "heizlast-ha-dev-v1";
-const sampleBackground = "/api/heizlast_ha/images/demo-ground-floor";
+const storageKey = "heizlast-ha-dev-v2";
 const params = new URLSearchParams(location.search);
-interface DevStorage { project: Project; data: Record<string, string> }
+interface DevStorage { project: Project }
 function newStorage(empty = false): DevStorage {
   const plan = clone(samplePlan) as Floorplan;
-  plan.floors[0].background = sampleBackground;
-  return { project: { revision: 0, plan: empty ? null : plan, bindings: empty ? {} : { eg_wohnzimmer: ["sensor.wohnzimmer_temperatur", "sensor.wohnzimmer_fenster"], eg_kueche: ["sensor.kueche_temperatur"], eg_flur: ["sensor.flur_temperatur"], eg_bad: ["sensor.bad_temperatur"] }, images: empty ? [] : [{ background: sampleBackground, name: "ground-floor.png", width: 1200, height: 800, mime: "image/png" }] }, data: empty ? {} : { [sampleBackground]: sampleImage } };
+  return { project: { revision: 0, plan: empty ? null : plan, bindings: empty ? {} : { eg_wohnzimmer: ["sensor.wohnzimmer_temperatur", "sensor.wohnzimmer_fenster"], eg_kueche: ["sensor.kueche_temperatur"], eg_flur: ["sensor.flur_temperatur"], eg_bad: ["sensor.bad_temperatur"] } } };
 }
 let store: DevStorage;
 try { store = params.has("reset") ? newStorage(params.has("empty")) : JSON.parse(localStorage.getItem(storageKey) ?? "null") ?? newStorage(params.has("empty")); }
@@ -38,17 +35,7 @@ let hass: HomeAssistant = {
   },
   async callWS<T>(message: Record<string, unknown>): Promise<T> {
     if (message.type === "heizlast_ha/get_project") return clone(store.project) as T;
-    if (message.type === "auth/sign_path") return { path: store.data[String(message.path)] ?? "" } as T;
     if (readOnly) throw { code: "unauthorized", message: "Administratorrechte erforderlich." };
-    if (message.type === "heizlast_ha/upload_image") {
-      const data = String(message.data);
-      const mime = data.startsWith("/9j/") ? "image/jpeg" : "image/png";
-      const source = `data:${mime};base64,${data}`;
-      const dimensions = await new Promise<{ width: number; height: number }>((resolve, reject) => { const image = new Image(); image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight }); image.onerror = reject; image.src = source; });
-      const image: ImageMetadata = { background: `/api/heizlast_ha/images/${crypto.randomUUID()}`, name: String(message.name), mime, ...dimensions };
-      store.project.images.push(image); store.data[image.background] = source; persist();
-      return clone(image) as T;
-    }
     if (message.type === "heizlast_ha/save_project") {
       if (message.revision !== store.project.revision) throw { code: "conflict", message: "Projekt wurde geändert." };
       const plan = clone(message.plan) as Floorplan, bindings = clone(message.bindings) as Record<string, string[]>;

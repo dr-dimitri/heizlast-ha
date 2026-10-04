@@ -86,7 +86,7 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
 ### Versionierung und Paketinhalt
 
 - `VERSION` ist die zentrale Projektversion im Format `MAJOR.MINOR.PATCH`,
-  aktuell `0.5.0`. Für eine neue Implementierung die Version nach SemVer
+  aktuell `0.6.0`. Für eine neue Implementierung die Version nach SemVer
   erhöhen. CI-Builds erhalten zusätzlich eine eindeutige Buildkennung.
 - Sobald Integrationen vorhanden sind, liegen sie unter
   `custom_components/<domain>/`. Jeder Integrationsordner benötigt
@@ -134,14 +134,15 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
 - Die Tests unter `tests/` prüfen Archivinhalt, Versionsfehler,
   erforderliche Frontend-Ausgaben, Dokumentationsabgleich, Schemakonsistenz,
   Beispielgrundriss und die echte Home-Assistant-Integration einschließlich
-  Speicherung, Bildzugriff, WebSocket-API und Konfigurationsfluss. Pytest nutzt
+  Speicherung ohne Bildverwaltung, WebSocket-API und Konfigurationsfluss. Pytest nutzt
   `asyncio_mode = "auto"` und einen Funktions-Scope für asynchrone Fixtures.
 - HACS-Tests prüfen das direkt installierbare ZIP, Paketvollständigkeit und
   Releaseherkunft. Frontend-Integrationstests prüfen statischen Modulzugriff,
   automatisches Laden, Entladen/Neuladen und einen fehlenden Kartenbuild.
   Sie prüfen außerdem Seitenleiste, Verknüpfung mit der Integration,
   Dashboard-Pfadkonflikte und Entfernung des eigenen Panels. Frontendtests prüfen
-  den direkten Einstieg in die Einrichtung, mobile Navigation, Zustandsupdates
+  den direkten Einstieg in die Einrichtung, Prompt ohne Bild-Upload, eigenständige
+  Raumdarstellung, mobile Navigation, Zustandsupdates
   und den Lesezugriff normaler Benutzer im Seitenleisten-Dashboard.
   Reparaturtests prüfen Erstinstallation, Kartenänderungen, Bestätigung,
   Neustart, veraltete Dialoge, Bereinigung und deutsche/englische Übersetzungen
@@ -160,10 +161,17 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   `custom_components/heizlast_ha/floorplan-v1.schema.json` muss bytegleich sein;
   der Schematest erzwingt dies. Änderungen immer gemeinsam durchführen und
   Schema-Version sowie bestehende Daten berücksichtigen.
-- Die Integration speichert Grundriss, Sensorzuordnungen und Bilder in Home
-  Assistant. Der Frontend-Entwicklungsadapter darf ausschließlich für lokale
-  Vorschau und Tests verwendet werden. Administratorrechte sind für Uploads
-  und Konfigurationsänderungen erforderlich.
+- Das Format `schema_version: "1.1"` enthält ausschließlich Etagen, eine
+  eigenständige Zeichenfläche und Raumkonturen mit Namen, IDs und Flächenangaben.
+  Das frühere bildbasierte Format `1.0` und das Feld `background` entfallen;
+  bestehende bildbasierte Pläne müssen nicht migriert werden.
+- Die Einrichtung erzeugt nur den LLM-Prompt; der Originalgrundriss wird direkt
+  im externen LLM beigefügt. Die Integration speichert ausschließlich Grundriss-JSON
+  und Sensorzuordnungen in Home Assistant. Bild-Upload, Bildendpunkt und
+  Bildspeicherung entfallen. Anzeige und Korrekturen benötigen kein Originalbild.
+  Der Frontend-Entwicklungsadapter darf ausschließlich für lokale Vorschau und
+  Tests verwendet werden. Administratorrechte sind für JSON-Import und
+  Konfigurationsänderungen erforderlich.
 
 ### HACS-Releases
 

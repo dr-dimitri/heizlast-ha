@@ -3,16 +3,15 @@ import sample from "../../examples/ground-floor.json";
 import { HeizlastHaCard } from "../src/card";
 import { clone, type Floorplan, type HomeAssistant, type Project } from "../src/types";
 
-const empty = (): Project => ({ revision: 0, plan: null, bindings: {}, images: [{ background: sample.floors[0].background, name: "ground-floor.png", width: 1200, height: 800, mime: "image/png" }] });
+const empty = (): Project => ({ revision: 0, plan: null, bindings: {} });
 const existing = (): Project => ({ ...empty(), revision: 7, plan: clone(sample) as Floorplan, bindings: { eg_wohnzimmer: ["sensor.a", "sensor.removed"] } });
 const state = (value = "21.4") => ({ entity_id: "sensor.a", state: value, attributes: { friendly_name: "Raumsensor", device_class: "temperature", unit_of_measurement: "°C" } });
 const flush = async (card: HeizlastHaCard) => { await card.updateComplete; await new Promise((resolve) => setTimeout(resolve, 0)); await card.updateComplete; };
 
-async function mount(project = existing(), admin = true, rejectSave = false, rejectSign = false) {
+async function mount(project = existing(), admin = true, rejectSave = false) {
   let saved = clone(project);
   const callWS = vi.fn(async (message: Record<string, unknown>) => {
     if (message.type === "heizlast_ha/get_project") return clone(saved);
-    if (message.type === "auth/sign_path") { if (rejectSign) throw new Error("Offline"); return { path: "/signed/image" }; }
     if (message.type === "heizlast_ha/save_project") {
       if (rejectSave) throw { code: "conflict", message: "Conflict" };
       saved = { ...saved, revision: saved.revision + 1, plan: clone(message.plan) as Floorplan, bindings: clone(message.bindings) as Record<string, string[]> };
@@ -41,7 +40,8 @@ describe("Home Assistant card workflow", () => {
     const { card, callWS } = await mount();
     expect(card.shadowRoot!.querySelectorAll("polygon")).toHaveLength(4);
     expect(card.shadowRoot!.textContent).toContain("21,4 °C"); expect(card.shadowRoot!.textContent).toContain("Entität entfernt");
-    expect(callWS).toHaveBeenCalledWith({ type: "auth/sign_path", path: sample.floors[0].background, expires: 3600 });
+    expect(callWS).toHaveBeenCalledExactlyOnceWith({ type: "heizlast_ha/get_project" });
+    expect(card.shadowRoot!.querySelector("svg image")).toBeNull();
   });
   it("leaves the displayed plan and all assignments intact after failed import", async () => {
     const { card, callWS } = await mount(), before = card.shadowRoot!.querySelector("polygon")!.getAttribute("points");
@@ -56,15 +56,6 @@ describe("Home Assistant card workflow", () => {
     button(card, "Import übernehmen").click(); await flush(card);
     expect(saved().plan?.floors).toHaveLength(1); expect(saved().revision).toBe(1); expect(card.shadowRoot!.textContent).toContain("sind gespeichert");
     expect(callWS.mock.calls.find(([message]) => message.type === "heizlast_ha/save_project")?.[0].confirmed_removed_room_ids).toEqual([]);
-  });
-  it("rejects a single-floor import referencing a registered but unselected image", async () => {
-    const project = existing(), alternative = "/api/heizlast_ha/images/other-image";
-    project.images.push({ ...project.images[0], background: alternative, name: "other.png" });
-    const { card, saved, callWS } = await mount(project), before = card.shadowRoot!.querySelector("polygon")!.getAttribute("points");
-    const input = clone(sample); input.floors[0].background = alternative;
-    await editJson(card, JSON.stringify(input));
-    expect(card.shadowRoot!.textContent).toContain("passt nicht zum ausgewählten Bild"); expect(card.shadowRoot!.querySelector("polygon")!.getAttribute("points")).toBe(before); expect(saved().revision).toBe(7);
-    expect(callWS.mock.calls.filter(([message]) => message.type === "heizlast_ha/save_project")).toHaveLength(0);
   });
   it("imports JSON files using the same preview-only validation path", async () => {
     const { card, saved } = await mount(empty());
@@ -122,22 +113,24 @@ describe("Home Assistant card workflow", () => {
     const { card } = await mount(existing(), false);
     expect(card.shadowRoot!.textContent).toContain("Administratorrechte"); expect(card.shadowRoot!.querySelectorAll("polygon")).toHaveLength(4); expect(card.shadowRoot!.textContent).toContain("21,4 °C"); expect(card.shadowRoot!.querySelector("input[type=checkbox]")).toBeNull(); expect([...card.shadowRoot!.querySelectorAll("button")].some((element) => element.textContent?.includes("korrigieren"))).toBe(false);
   });
-  it("does not loop signing requests when auth/sign_path fails", async () => {
-    const { card, hass, callWS } = await mount(existing(), true, false, true);
-    for (let i = 0; i < 4; i++) { card.hass = { ...hass }; await flush(card); }
-    expect(callWS.mock.calls.filter(([message]) => message.type === "auth/sign_path")).toHaveLength(1);
-    expect(card.shadowRoot!.textContent).toContain("Grundrissbild konnte nicht geladen");
-  });
-  it("provides the fully populated prompt, normalized image download and clipboard fallback", async () => {
-    const { card } = await mount(empty());
-    const select = card.shadowRoot!.querySelector<HTMLSelectElement>("select")!; select.value = sample.floors[0].background; select.dispatchEvent(new Event("change", { bubbles: true })); await flush(card);
+  it("opens and copies the prompt without uploading any image, including clipboard fallback", async () => {
+    const { card, callWS } = await mount(empty());
+    expect(card.shadowRoot!.querySelector('input[aria-label="Grundrissbild hochladen"]')).toBeNull();
     button(card, "LLM-Prompt anzeigen").click(); await flush(card);
     const field = card.shadowRoot!.querySelector<HTMLTextAreaElement>(".prompt-text")!;
-    expect(field.value).toContain(sample.floors[0].background); expect(field.value).toContain("1200"); expect(card.shadowRoot!.querySelector("a[download]")).not.toBeNull();
+    expect(field.value).toContain("1.1"); expect(field.value).toContain("Erdgeschoss"); expect(card.shadowRoot!.querySelector("a[download]")).toBeNull();
+    expect(callWS).toHaveBeenCalledExactlyOnceWith({ type: "heizlast_ha/get_project" });
     const writeText = vi.fn().mockRejectedValue(new Error("Unavailable")); Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     button(card, "Prompt kopieren").click(); await flush(card);
     expect(writeText).toHaveBeenCalledWith(field.value); expect(field.selectionEnd).toBe(field.value.length); expect(card.shadowRoot!.textContent).toContain("manuell kopieren");
     delete (navigator as unknown as { clipboard?: unknown }).clipboard;
+  });
+  it("loads the example locally and saves it without image requests", async () => {
+    const { card, callWS, saved } = await mount(empty());
+    button(card, "Beispiel laden").click(); await vi.waitFor(() => expect(card.shadowRoot!.querySelectorAll("polygon")).toHaveLength(4));
+    await flush(card); button(card, "Import übernehmen").click(); await flush(card);
+    expect(saved().plan?.schema_version).toBe("1.1");
+    expect(callWS.mock.calls.map(([message]) => message.type)).toEqual(["heizlast_ha/get_project", "heizlast_ha/save_project"]);
   });
   it("renders each imported floor and retains all floors on save", async () => {
     const { card, saved } = await mount(empty()), input = clone(sample), second = clone(input.floors[0]);

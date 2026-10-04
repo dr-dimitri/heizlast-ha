@@ -8,26 +8,17 @@ export interface Room {
 export interface Floor {
   id: string;
   name: string;
-  background: string;
   canvas: { width: number; height: number };
   rooms: Room[];
 }
 export interface Floorplan {
-  schema_version: "1.0";
+  schema_version: "1.1";
   floors: Floor[];
-}
-export interface ImageMetadata {
-  background: string;
-  name: string;
-  width: number;
-  height: number;
-  mime: string;
 }
 export interface Project {
   revision: number;
   plan: Floorplan | null;
   bindings: Record<string, string[]>;
-  images: ImageMetadata[];
 }
 export interface HassState {
   entity_id: string;
