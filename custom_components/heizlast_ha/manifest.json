@@ -10,5 +10,5 @@
   "issue_tracker": "https://github.com/dr-dimitri/heizlast-ha/issues",
   "requirements": ["jsonschema==4.26.0", "shapely==2.1.2"],
   "single_config_entry": true,
-  "version": "0.6.0"
+  "version": "0.6.1"
 }

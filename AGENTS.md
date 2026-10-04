@@ -13,11 +13,20 @@ Diese Vorgaben gelten für das gesamte Repository.
    fehlgeschlagener Build muss behoben und wiederholt werden, bevor der Ablauf
    fortgesetzt wird. Fehlt ein definierter Versions- oder Buildprozess, diese
    Voraussetzung ausdrücklich melden und den Build nicht als erledigt ausgeben.
-3. **Alte lokale Branches löschen.** Nach erfolgreichem Build nicht mehr
+3. **Mergen und ein neues HACS-Release veröffentlichen.** Nach erfolgreichem
+   Review und Build die Änderung in `main` mergen. Nach jedem Merge ist ein
+   neues HACS-Release verpflichtend, auch bei reinen Dokumentationsänderungen.
+   Den erfolgreichen CI-Build für exakt den neuen `main`-Commit abwarten,
+   anschließend den Release-Workflow auf `main` starten und das veröffentlichte
+   Asset `heizlast_ha.zip` auf Version, Quellcommit und vollständigen Paketinhalt
+   prüfen. Das Release verwendet das geprüfte CI-Artefakt; kein abweichendes
+   Paket erneut bauen. Der Ablauf ist erst nach erfolgreicher Veröffentlichung
+   und Asset-Prüfung abgeschlossen.
+4. **Alte lokale Branches löschen.** Nach erfolgreichem Build nicht mehr
    benötigte, vollständig integrierte lokale Branches mit `git branch -d`
    löschen. `main` und den aktuell ausgecheckten Branch dabei erhalten.
    Branches mit nicht integrierten Änderungen nicht gewaltsam löschen.
-4. **Auf `main` wechseln und aktualisieren.** Die eigene Arbeit zuvor sichern,
+5. **Auf `main` wechseln und aktualisieren.** Die eigene Arbeit zuvor sichern,
    dann mit `git switch main` auf `main` wechseln und mit
    `git pull --ff-only origin main` aktualisieren. Falls der bisher aktive
    Entwicklungsbranch ebenfalls vollständig integriert und nicht mehr nötig
@@ -86,8 +95,10 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
 ### Versionierung und Paketinhalt
 
 - `VERSION` ist die zentrale Projektversion im Format `MAJOR.MINOR.PATCH`,
-  aktuell `0.6.0`. Für eine neue Implementierung die Version nach SemVer
-  erhöhen. CI-Builds erhalten zusätzlich eine eindeutige Buildkennung.
+  aktuell `0.6.1`. Für eine neue Implementierung die Version nach SemVer
+  erhöhen. Jeder Merge benötigt eine bisher unveröffentlichte Version für das
+  verpflichtende HACS-Release; reine Dokumentationsänderungen erhöhen mindestens
+  die Patch-Version. CI-Builds erhalten zusätzlich eine eindeutige Buildkennung.
 - Sobald Integrationen vorhanden sind, liegen sie unter
   `custom_components/<domain>/`. Jeder Integrationsordner benötigt
   `__init__.py` und `manifest.json`; dessen `version` muss zu `VERSION` passen.
@@ -187,9 +198,13 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
 - Danach wird `v<VERSION>` mit dem Asset `heizlast_ha.zip` und automatisch
   erzeugten Releasehinweisen veröffentlicht. Bestehende Releases werden nicht
   überschrieben. Parallele Veröffentlichungen werden serialisiert, nicht
-  abgebrochen. Nach einer neuen Implementierung Review, Version, grünen Build
-  und Merge durchführen, dann bei einer gewünschten HACS-Veröffentlichung den
-  Release-Workflow auf `main` starten und das veröffentlichte Asset prüfen.
+  abgebrochen. Nach Review, Versionsanhebung, grünem Build und jedem Merge den
+  erfolgreichen CI-Lauf des neuen `main`-Commits abwarten, den Release-Workflow
+  auf `main` starten und das veröffentlichte Asset prüfen. Die Veröffentlichung
+  ist verpflichtend und benötigt keine zusätzliche Aufforderung des Benutzers.
+  Dies gilt auch für reine Dokumentationsänderungen. Fehlgeschlagene Builds
+  oder Veröffentlichungen beheben und erneut ausführen; den Abschluss bis dahin
+  ausdrücklich als unvollständig melden.
 - Die Installation erfolgt zunächst als benutzerdefiniertes HACS-Repository
   vom Typ Integration. Eine Aufnahme in den zentralen HACS-Katalog benötigt
   einen separaten Antrag und ist nicht Teil der Installationsfunktion.
@@ -216,7 +231,8 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
 ## Abschluss
 
 - Änderungen anderer Personen und nicht integrierte Commits niemals verwerfen.
-- Review, neue Version, Build, Branchbereinigung und Aktualisierung von `main`
-  im Abschlussbericht knapp festhalten. Fehlende Voraussetzungen oder
+- Review, neue Version, Build, Merge, veröffentlichtes HACS-Release samt
+  Asset-Prüfung, Branchbereinigung und Aktualisierung von `main` im
+  Abschlussbericht knapp festhalten. Fehlende Voraussetzungen oder
   fehlgeschlagene Schritte ausdrücklich nennen; den Ablauf dann nicht als
   vollständig abgeschlossen darstellen.
