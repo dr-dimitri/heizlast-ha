@@ -21,11 +21,12 @@ export interface PlanningData {
   calculation_date: string;
   building: { heat_load_w: number; heated_net_floor_area_m2: number; design_outdoor_temperature_c: number };
   room_heat_load_sum_w: number;
+  underfloor_heating: { design_supply_temperature_c: number; design_return_temperature_c: number };
   solar_assumptions: SolarAssumptions;
   zones: HeatZone[];
   shapes: PlanShape[];
   floors: Record<PlanningFloor, { bounds: [number, number, number, number]; stairs: Point[] }>;
-  sources: { building: { document: string; page: number; sheet: string }; climate: { document: string; page: number; sheet: string }; solar: { document: string; pages: number[]; section: string }; room_sum: { document: string; page: number; sheet: string }; plans: Record<PlanningFloor, { document: string; page: number; sheet: string }> };
+  sources: { building: { document: string; page: number; sheet: string }; climate: { document: string; page: number; sheet: string }; heating: { document: string; pages: number[] }; solar: { document: string; pages: number[]; section: string }; room_sum: { document: string; page: number; sheet: string }; plans: Record<PlanningFloor, { document: string; page: number; sheet: string }> };
   notes: { room_sum: string; geometry: string; solar: string };
 }
 export const planningData = source as PlanningData;
