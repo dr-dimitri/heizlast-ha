@@ -1,12 +1,12 @@
 # heizlast-ha
 
 Home-Assistant-Integration mit einer interaktiven digitalen Grundrisskarte.
-Version **0.7.0** ermöglicht das Verbinden und Löschen importierter Räume und
-erzeugt einen kopierbaren Prompt für ein externes LLM ohne
-Bild-Upload. Der importierte digitale Grundriss enthält Raumkonturen, Namen und
-Zeichenfläche vollständig; der ursprüngliche Plan wird danach nicht benötigt.
-Das Dashboard **Heizlast HA** steht automatisch in der HA-Seitenleiste bereit.
-Mehrere Etagen, Korrekturmodus und zugeordnete Temperatursensoren sind enthalten.
+Version **0.8.0** enthält den Zeicheneditor direkt im Dashboard **Heizlast HA**.
+Grundrisse lassen sich neu anlegen oder als LLM-JSON importieren. Beide Einstiege
+verwenden denselben Ablauf für Geschosse, Räume, Temperatursensoren und Speicherung.
+Räume können gezeichnet, korrigiert, geteilt, verbunden und gelöscht werden.
+Ein kopierbarer Prompt hilft beim externen LLM; ein Bild-Upload in die Integration
+ist nicht erforderlich. Das Dashboard steht automatisch in der HA-Seitenleiste.
 
 Die Integration speichert Grundriss-JSON und Sensorzuordnungen in Home Assistant.
 Temperaturwerte kommen direkt von den vorhandenen Sensoren. Eine
@@ -24,8 +24,8 @@ Heizlast HA wird als **benutzerdefiniertes Repository** installiert:
 4. Home Assistant neu starten. Unter **Einstellungen → Geräte & Dienste →
    Integration hinzufügen** nach **Heizlast HA** suchen und hinzufügen.
 5. Die Browserseite neu laden und links **Heizlast HA** öffnen. Das Dashboard
-   zeigt direkt die Einrichtung zum Erstellen des LLM-Prompts, Importieren
-   der JSON-Antwort und Zuordnen von Temperatursensoren. Es ist auch über den
+   zeigt direkt die Auswahl zwischen Neuanlage und LLM-JSON-Import. Beide
+   Einstiege führen in den gemeinsamen Zeicheneditor. Es ist auch über den
    Öffnen-Link der Integration unter **Geräte & Dienste** erreichbar.
 
 Das eigene Dashboard wird als Home-Assistant-Panel bereitgestellt und benötigt
@@ -94,60 +94,69 @@ Beispiele; daraus nur den Inhalt von `custom_components/heizlast_ha/` nach
 
 ## Vom Grundriss zur Temperaturanzeige
 
-1. Als Administrator Etagen-ID und Etagenname festlegen und **LLM-Prompt
-   anzeigen** öffnen. Ein Bild-Upload in die Integration ist nicht erforderlich.
-2. **Prompt kopieren** verwenden. Ist die Zwischenablage nicht verfügbar, den
-   Text im Dialog manuell kopieren. Prompt und ursprünglichen Grundriss direkt
-   an das gewünschte LLM übergeben, etwa als Bild, Screenshot oder PDF.
-   Die Integration selbst sendet keine LLM-Anfragen.
-3. Die Antwort als JSON-Datei laden oder in das Importfeld einfügen. Das LLM
-   liefert eine eigenständige Zeichenfläche und die Raumkonturen in deren
-   Koordinaten. Der Import prüft Schema, eindeutige IDs, Koordinatengrenzen und
-   Raumgeometrie. Ungültige Daten überschreiben die bisherige Konfiguration nicht.
-4. Raumkonturen, Namen und Anordnung in der Vorschau prüfen und ausdrücklich
-   übernehmen. Jede enthaltene Etage bleibt erhalten und ist auswählbar.
-   Für mehrere Etagen die jeweiligen Etagenobjekte gemeinsam in `floors`
-   aufnehmen und über alle Etagen eindeutige IDs verwenden.
-5. Einen Raum anklicken. Im Korrekturmodus können Raumnamen und Eckpunkte
-   geändert, Punkte hinzugefügt oder entfernt werden. Änderungen speichern.
-   Anzeige und Korrekturen benötigen ausschließlich die importierten Daten.
-   Unter **Räume bearbeiten** einen zweiten Raum derselben Etage auswählen und
-   **Räume verbinden** verwenden oder den ausgewählten **Raum löschen**.
-   Das funktioniert direkt in der Importvorschau und später im gespeicherten Plan.
-6. Dem Raum einen oder mehrere Home-Assistant-Temperatursensoren zuordnen. Jeder
-   Sensor wird mit seinem aktuellen Wert und seiner Einheit angezeigt. Es
-   erfolgt keine ungeprüfte Mittelung unterschiedlicher Einheiten. Nicht
-   verfügbare und entfernte Sensoren werden entsprechend gekennzeichnet.
+Der gemeinsame Ablauf lautet **Quelle → Geschosse → Räume → Sensoren → Prüfen**.
+Bei einem vorhandenen Plan öffnet **Grundriss bearbeiten** dieselben Werkzeuge.
 
-**Beispiel laden** stellt einen handgeprüften digitalen Grundriss mit Wohnzimmer,
-Küche, Flur und Bad als Importvorschau bereit. Das Beispiel funktioniert ohne
-Bild und ist auch direkt aus [`examples/ground-floor.json`](examples/ground-floor.json)
-importierbar.
+1. Unter **Quelle** entweder **Neuen Grundriss erstellen** wählen oder JSON
+   einfügen beziehungsweise eine Datei laden und **Import prüfen** wählen.
+   Für die LLM-Erkennung Etagen-ID und Etagenname eingeben, **LLM-Prompt anzeigen**
+   und **Prompt kopieren** verwenden. Prompt und Originalgrundriss direkt im
+   externen LLM beifügen. Die Integration sendet keine LLM-Anfragen und speichert
+   keine Bilder. Importierte Angaben sind im Editor vorausgefüllt.
+2. Unter **Geschosse** Geschosse anlegen, umbenennen, sortieren oder löschen.
+   Die Zeichenfläche ist anpassbar; ihre Einheiten sind kein metrischer Maßstab.
+3. Unter **Räume** ein Rechteck ziehen oder zwei gegenüberliegende Eckpunkte
+   antippen. Für ein Polygon einzelne Eckpunkte setzen. Raumname eingeben und
+   **Raum fertigstellen** wählen. Punkte können auch numerisch eingegeben werden.
+   Ein Raster, das Einrasten an vorhandenen Eckpunkten, Zoom, Verschieben und
+   **Alles anzeigen** erleichtern die Bearbeitung. Die linke Liste wählt Geschoss
+   und Raum; rechts stehen die Eigenschaften. **Raumgrenzen korrigieren** bietet
+   alternative Koordinateneingaben. Ungültige Konturen bleiben unübernommen.
+4. Unter **Sensoren** jeden Raum auswählen und **Temperatursensoren zuordnen**
+   öffnen. Der Suchfilter bietet vorhandene Temperatur-Sensoren. Mehrere Sensoren
+   und bewusst leere Zuordnungen sind möglich; Werte und Einheiten werden einzeln
+   angezeigt. Bisherige entfernte, nicht verfügbare oder geänderte Sensoren bleiben
+   erkennbar und erhalten. Eine automatische Mittelwertbildung erfolgt nicht.
+5. Unter **Prüfen** alle Räume, Flächen und Zuordnungen durchsehen und ausdrücklich
+   **Änderungen speichern** beziehungsweise **Import übernehmen** wählen.
+   Grundriss und Sensorzuordnungen werden gemeinsam gespeichert. Änderungen sind
+   vorher ein Entwurf; **Rückgängig**, **Wiederholen** und **Änderungen verwerfen**
+   stehen zur Verfügung. Ein Ziehvorgang zählt als ein Bearbeitungsschritt.
 
-Sensorzuordnungen werden anhand stabiler Raum-IDs getrennt vom Grundriss
-gespeichert. Ein Reimport mit gleichen IDs erhält sie. Entfernte Räume werden
-vor der Übernahme zur Bestätigung angezeigt. Wenn ein anderer Browser die
-Konfiguration inzwischen gespeichert hat, wird ein Versionskonflikt angezeigt;
-zuerst neu laden und die Änderungen erneut prüfen. Normale Benutzer können die
-gespeicherten Räume und Temperaturen ansehen; Konfigurationsänderungen erfordern
-Administratorrechte.
+**Raum teilen** verbindet zwei Punkte auf der Raumgrenze mit einer geraden Linie.
+Die Vorschau enthält exakt zwei gültige Teilräume. Standardmäßig behält der
+größere Teil die bisherige ID und den Namen; diese Wahl ist änderbar. Für beide
+Teile sind Namen und die ausdrückliche Sensorverteilung sichtbar. Jeder bisherige
+Sensor kann dem bisherigen Teil, dem neuen Teil oder beiden zugewiesen werden.
+Teilflächen bleiben ohne bestätigte Angaben offen; die bisherige Fläche dient
+als Referenz. **Teilung übernehmen** verändert erst den Entwurf.
 
-Beim Verbinden bleiben Name und ID des ausgewählten Raums erhalten. Seine
-Kontur umfasst anschließend beide Räume; gemeinsame Grenzen und schmale
-Wandabstände entlang annähernd paralleler Kanten werden verbunden. Entfernte,
-nur an einem Eckpunkt anliegende Räume, Konturen mit eingeschlossenen Aussparungen
-und Verbindungen durch andere Räume werden abgelehnt. Bei Bedarf zuerst die
-Raumgrenzen korrigieren. Die Sensorzuordnungen werden ohne Duplikate
-zusammengeführt, auch bei inzwischen entfernten Sensoren. Sind beide
-Flächenangaben bekannt, werden sie addiert; sonst bleibt die Fläche unbestätigt.
-Die Konturkoordinaten werden dabei nicht als metrischer Maßstab verwendet.
+Beim **Verbinden** bleiben Name und ID des ausgewählten Raums erhalten.
+Gemeinsame Grenzen und schmale Wandabstände werden unterstützt; punktförmige
+Kontakte, eingeschlossene Aussparungen und Verbindungen durch dritte Räume
+werden abgelehnt. Sensoren werden ohne Duplikate übernommen. Sind beide Flächen
+bekannt, werden sie addiert; sonst bleibt die Fläche unbestätigt.
 
-Beim Löschen entfallen nur der ausgewählte Raum und seine Zuordnungen; auch
-nach dem letzten Raum bleiben Etage und Zeichenfläche erhalten. Verbinden und
-Löschen ändern zunächst die Vorschau. **Änderungen verwerfen** beziehungsweise
-**Vorschau verwerfen** stellt den gespeicherten Stand wieder her. Beim Speichern
-bereits vorhandener Räume ist die Entfernung ihrer IDs ausdrücklich zu
-bestätigen; der Dialog zeigt, welche Sensoren weiterhin zugeordnet sind.
+Beim **Raum löschen** entfallen Raum und Zuordnungen. Nach dem letzten Raum
+bleibt das Geschoss als leere Zeichenfläche erhalten. **Geschoss löschen**
+benötigt eine Bestätigung im Entwurf; das letzte Geschoss setzt das Projekt auf
+`plan: null` zurück. Vor dem dauerhaften Entfernen bisheriger Raum-IDs zeigt die
+Speicherbestätigung den Verbleib ihrer Sensoren. Alle Entwurfsänderungen lassen
+sich vorher rückgängig machen.
+
+**Beispiel laden** stellt einen geprüften Grundriss mit Wohnzimmer, Küche, Flur
+und Bad als Importvorschau bereit, auch direkt aus
+[`examples/ground-floor.json`](examples/ground-floor.json) importierbar.
+Ein Reimport mit gleichen Raum-IDs erhält bestehende Sensorzuordnungen.
+Bei einem Speicherkonflikt bleibt der Entwurf erhalten: zuerst **Änderungen
+sichern**, dann die aktuelle Version laden. Die Sicherung enthält Grundriss,
+Zuordnungen und Bearbeitungsnachweise. Normale Benutzer sehen den gespeicherten
+Plan und Temperaturen; alle Änderungen erfordern Administratorrechte.
+
+Der Editor nutzt Home-Assistant-Themefarben, Hell-/Dunkelmodus und eine responsive
+Anordnung. Auf kleinen Bildschirmen stehen Liste, Plan und Eigenschaften
+untereinander. Die Schritte, Formulare und Raumaktionen sind per Tastatur
+bedienbar; Zeichnen und Grenzkorrekturen haben numerische Alternativen.
 
 ## Datenformat und Speicherung
 

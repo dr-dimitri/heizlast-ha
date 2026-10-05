@@ -18,6 +18,7 @@ from .validation import (
     validate_bindings,
     validate_plan,
     validate_removals,
+    validate_room_operations,
 )
 
 
@@ -105,6 +106,7 @@ class Project:
         plan: Any,
         bindings: Any,
         confirmed_removed_room_ids: list[str],
+        room_operations: Any = None,
     ) -> JsonObject:
         """Validate then atomically save, rejecting stale edits and unsafe removals."""
         async with self.lock:
@@ -121,6 +123,14 @@ class Project:
             validate_removals(
                 self.data["plan"], checked_plan, confirmed_removed_room_ids
             )
+            inherited_bindings = await self.hass.async_add_executor_job(
+                validate_room_operations,
+                self.data["plan"],
+                checked_plan,
+                self.data["bindings"],
+                [] if room_operations is None else room_operations,
+                self.validator,
+            )
             checked_bindings = validate_bindings(
                 checked_plan,
                 bindings,
@@ -128,6 +138,7 @@ class Project:
                 lambda entity_id: is_temperature_state(
                     entity_id, self.hass.states.get(entity_id)
                 ),
+                inherited_bindings,
             )
             candidate = {
                 "revision": self.data["revision"] + 1,

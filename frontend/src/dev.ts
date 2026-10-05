@@ -38,8 +38,8 @@ let hass: HomeAssistant = {
     if (readOnly) throw { code: "unauthorized", message: "Administratorrechte erforderlich." };
     if (message.type === "heizlast_ha/save_project") {
       if (message.revision !== store.project.revision) throw { code: "conflict", message: "Projekt wurde geändert." };
-      const plan = clone(message.plan) as Floorplan, bindings = clone(message.bindings) as Record<string, string[]>;
-      const nextIds = new Set(plan.floors.flatMap((floor) => floor.rooms.map((room) => room.id)));
+      const plan = clone(message.plan) as Floorplan | null, bindings = clone(message.bindings) as Record<string, string[]>;
+      const nextIds = new Set(plan?.floors.flatMap((floor) => floor.rooms.map((room) => room.id)) ?? []);
       const removed = store.project.plan?.floors.flatMap((floor) => floor.rooms.map((room) => room.id)).filter((id) => !nextIds.has(id)) ?? [];
       const confirmed = new Set(message.confirmed_removed_room_ids as string[] ?? []);
       if (removed.some((id) => !confirmed.has(id))) throw { code: "confirmation_required", message: "Entfernte Raum-IDs bestätigen." };
@@ -60,3 +60,10 @@ document.getElementById("values")!.onclick = () => {
   card.hass = hass;
 };
 window.addEventListener("storage", (event) => { if (event.key === storageKey && event.newValue) store = JSON.parse(event.newValue) as DevStorage; });
+
+let themeIndex = 0;
+document.getElementById("theme")!.onclick = () => {
+  themeIndex = (themeIndex + 1) % 3;
+  document.documentElement.dataset.theme = ["light", "dark", "custom"][themeIndex];
+  document.getElementById("theme")!.textContent = `Theme: ${["Hell", "Dunkel", "Eigene Farben"][themeIndex]}`;
+};

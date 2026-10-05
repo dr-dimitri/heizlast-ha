@@ -141,3 +141,70 @@ export function interiorLabelPoint(polygon: Point[]): Point {
   }
   return best;
 }
+
+export function rectanglePolygon(start: Point, end: Point): Point[] {
+  const left = Math.min(start[0], end[0]), right = Math.max(start[0], end[0]);
+  const top = Math.min(start[1], end[1]), bottom = Math.max(start[1], end[1]);
+  return [[left, top], [right, top], [right, bottom], [left, bottom]];
+}
+
+interface BoundaryPosition { point: Point; position: number; distance: number }
+
+function boundaryPosition(polygon: Point[], point: Point): BoundaryPosition {
+  let closest: BoundaryPosition = { point: [...point], position: 0, distance: Infinity };
+  for (let i = 0; i < polygon.length; i++) {
+    const a = polygon[i], b = polygon[(i + 1) % polygon.length];
+    const dx = b[0] - a[0], dy = b[1] - a[1], lengthSquared = dx * dx + dy * dy;
+    if (!lengthSquared) continue;
+    const ratio = Math.max(0, Math.min(1, ((point[0] - a[0]) * dx + (point[1] - a[1]) * dy) / lengthSquared));
+    let projected: Point = [a[0] + ratio * dx, a[1] + ratio * dy], position = i + ratio;
+    if (Math.hypot(projected[0] - a[0], projected[1] - a[1]) <= EPSILON) { projected = [...a]; position = i; }
+    else if (Math.hypot(projected[0] - b[0], projected[1] - b[1]) <= EPSILON) { projected = [...b]; position = (i + 1) % polygon.length; }
+    const distance = Math.hypot(point[0] - projected[0], point[1] - projected[1]);
+    if (distance < closest.distance) closest = { point: projected, position, distance };
+  }
+  return closest;
+}
+
+/** Snap an editor pointer to the nearest boundary, independent of zoom. */
+export function nearestBoundaryPoint(polygon: Point[], point: Point): Point {
+  return boundaryPosition(polygon, point).point;
+}
+
+export type SplitRoomResult = { ok: true; rooms: [Room, Room]; originalArea: number | null } | { ok: false; error: string };
+
+/** A straight boundary-to-boundary cut must remain inside a simple room.
+ * The first returned room retains the source ID/name; the other is new.
+ * Metric areas require independent confirmation after a split. */
+export function splitRoom(room: Room, start: Point, end: Point, newId: string, keep: "larger" | "smaller" = "larger"): SplitRoomResult {
+  if (!/^[a-z][a-z0-9_-]*$/.test(newId) || newId.length > 64 || newId === room.id) return { ok: false, error: "Der neue Teilraum benötigt eine eigene gültige ID." };
+  if (geometryError(room.polygon)) return { ok: false, error: "Korrigieren Sie zuerst die ungültige Raumkontur." };
+  if ([...start, ...end].some((coordinate) => !Number.isFinite(coordinate))) return { ok: false, error: "Die Teilungspunkte müssen endliche Koordinaten haben." };
+  const a = boundaryPosition(room.polygon, start), b = boundaryPosition(room.polygon, end);
+  if (a.distance > EPSILON || b.distance > EPSILON) return { ok: false, error: "Setzen Sie beide Teilungspunkte auf die Raumgrenze." };
+  if (Math.hypot(a.point[0] - b.point[0], a.point[1] - b.point[1]) <= EPSILON) return { ok: false, error: "Wählen Sie zwei unterschiedliche Punkte auf der Raumgrenze." };
+  const boundaryPath = (from: BoundaryPosition, to: BoundaryPosition): Point[] => {
+    const last = to.position > from.position ? to.position : to.position + room.polygon.length;
+    const points: Point[] = [[...from.point]];
+    for (let index = Math.floor(from.position) + 1; index < last; index++) points.push([...room.polygon[index % room.polygon.length]]);
+    points.push([...to.point]);
+    return points;
+  };
+  const parts = [boundaryPath(a, b), boundaryPath(b, a)];
+  const midpoint: Point = [(a.point[0] + b.point[0]) / 2, (a.point[1] + b.point[1]) / 2];
+  if (parts.some((part) => part.length > 500 || geometryError(part)) || !pointInside(midpoint, room.polygon) || boundaryDistanceSquared(midpoint, room.polygon) <= EPSILON ** 2) {
+    return { ok: false, error: "Die Linie muss innerhalb des Raums liegen und genau zwei gültige Räume erzeugen. Wählen Sie andere Grenzpunkte." };
+  }
+  try {
+    const area = polygonArea(room.polygon);
+    if (overlap(parts[0], parts[1]) || Math.abs(polygonArea(parts[0]) + polygonArea(parts[1]) - area) > EPSILON * Math.max(1, area)) return { ok: false, error: "Die Teilung verändert die ursprüngliche Raumfläche. Wählen Sie eine Linie innerhalb des Raums." };
+    const larger = polygonArea(parts[0]) >= polygonArea(parts[1]) ? 0 : 1;
+    const retained = keep === "larger" ? larger : 1 - larger;
+    return { ok: true, rooms: [
+      { ...room, polygon: parts[retained], area_m2: null },
+      { id: newId, name: `${room.name.slice(0, 118)} 2`, polygon: parts[1 - retained], area_m2: null },
+    ], originalArea: room.area_m2 };
+  } catch {
+    return { ok: false, error: "Die Raumkontur lässt sich nicht sicher teilen. Wählen Sie andere Grenzpunkte." };
+  }
+}

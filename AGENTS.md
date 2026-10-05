@@ -95,7 +95,7 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
 ### Versionierung und Paketinhalt
 
 - `VERSION` ist die zentrale Projektversion im Format `MAJOR.MINOR.PATCH`,
-  aktuell `0.7.0`. Für eine neue Implementierung die Version nach SemVer
+  aktuell `0.8.0`. Für eine neue Implementierung die Version nach SemVer
   erhöhen. Jeder Merge benötigt eine bisher unveröffentlichte Version für das
   verpflichtende HACS-Release; reine Dokumentationsänderungen erhöhen mindestens
   die Patch-Version. CI-Builds erhalten zusätzlich eine eindeutige Buildkennung.
@@ -162,6 +162,11 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   unzulässiger Verbindungen. Backendtests prüfen die dauerhafte Speicherung
   leerer Etagen und die Übernahme bisheriger Sensoren entfallender Raum-IDs,
   auch wenn deren Entitäten entfernt wurden oder ihre Geräteklasse geändert ist.
+  Editortests prüfen den gemeinsamen Prozess für Neuanlage und Import,
+  Rechteck-/Polygonzeichnung einschließlich Touch-Eingaben, Geschossverwaltung,
+  Raumteilung, bewusste Sensorverteilung, Rückgängig/Wiederholen und ungültige
+  Änderungen. Backendtests prüfen geometrische Teilungs-/Verbindungsnachweise,
+  historische Sensorherkunft, zusammengesetzte Bearbeitungen und Wiederladen.
   Reparaturtests prüfen Erstinstallation, Kartenänderungen, Bestätigung,
   Neustart, veraltete Dialoge, Bereinigung und deutsche/englische Übersetzungen
   mit Home Assistants echtem Reparaturmanager.
@@ -185,6 +190,15 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   bleibt mit bestehenden Daten der Schema-Version `1.1` kompatibel. Verbundene
   Räume behalten die ID und den Namen des ausgewählten Raums, übernehmen die
   Sensorzuordnungen beider Räume und addieren ausschließlich bekannte Flächen.
+  Der Zeicheneditor legt Geschosse und Räume manuell oder aus importiertem JSON
+  im selben fünfstufigen Prozess an. Raumteilungen erhalten standardmäßig die
+  ID des größeren Teils; beide Teilflächen bleiben bis zur Bestätigung `null`.
+  Rückgängig/Wiederholen umfasst Geometrie, Zuordnungen und Bearbeitungsnachweise.
+  Optionales `room_operations` in der Speicheranfrage enthält geprüfte Teilungen
+  und Verbindungen; es verfolgt historische Sensorherkunft auch bei weiterhin
+  vorhandener Ursprungs-ID und wird nicht gespeichert. Höchstens 1000 Nachweise
+  und 25000 Nachweispunkte sind zulässig. Neue Sensoren müssen weiterhin echte
+  Temperatursensoren sein. Das letzte gelöschte Geschoss setzt `plan` auf `null`.
   Das frühere bildbasierte Format `1.0` und das Feld `background` entfallen;
   bestehende bildbasierte Pläne müssen nicht migriert werden.
 - Die Einrichtung erzeugt nur den LLM-Prompt; der Originalgrundriss wird direkt

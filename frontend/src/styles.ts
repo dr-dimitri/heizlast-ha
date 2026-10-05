@@ -34,5 +34,13 @@ export const styles = css`
   .dialog-backdrop { position:fixed; inset:0; z-index:1000; background:#112a2370; display:flex; align-items:center; justify-content:center; padding:20px; } .dialog { width:min(760px,100%); max-height:90vh; overflow:auto; padding:25px; border-radius:17px; background:var(--surface); box-shadow:0 20px 70px #00150f40; } .dialog-top { display:flex; justify-content:space-between; align-items:start; gap:15px; } .dialog h2 { font-size:20px; margin:0 0 8px; } .dialog textarea { height:43vh; resize:vertical; font-family:ui-monospace,monospace; font-size:11px; line-height:1.6; margin:15px 0; } .dialog .notice { margin:12px 0; } .dialog-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:14px; flex-wrap:wrap; } .removed { padding:10px 13px; background:var(--soft); border-radius:8px; font-size:12px; line-height:1.6; max-height:240px; overflow:auto; }
   .removed-sensor { display:block; overflow-wrap:anywhere; } .empty-floor { padding:0 15px 12px; }
   @media(max-width:740px) { header { padding:18px; } h1 { font-size:18px; } .brand-icon { width:37px; height:37px; } .toolbar { padding:13px 18px; flex-wrap:wrap; } .content { grid-template-columns:1fr; } aside { border-left:0; border-top:1px solid var(--line); padding:20px; } .steps { grid-template-columns:1fr; gap:24px; } .setup { padding:20px 18px; } .notice { margin-left:18px; margin-right:18px; } .footer { padding:13px 18px; } .plan-area { padding:15px; } .badge { display:none; } .dialog-backdrop { padding:10px; } .dialog { padding:19px; } .dialog textarea { height:40vh; } }
+  :host { --accent:var(--primary-color,#0277bd); }
+  .dialog { color:var(--ink); background:var(--surface); border-radius:var(--ha-card-border-radius,12px); }
+  .dialog button.primary { background:var(--primary-color,#0277bd); border-color:var(--primary-color,#0277bd); color:var(--text-primary-color,#fff); }
+  .dialog button.danger { color:var(--error-color,#db4437); }
+  .dialog input,.dialog select,.dialog textarea { background:var(--surface); color:var(--ink); border-color:var(--line); min-height:44px; font-size:14px; }
+  .dialog .notice { color:var(--ink); background:var(--soft); border-color:var(--line); }
+  .dialog :focus-visible { outline-color:var(--primary-color,#0277bd); }
+  .dialog button { min-height:44px; }
   :host { --soft:var(--secondary-background-color,#f3f7f4); --line:var(--divider-color,#dce6df); } .plan-area,.empty,.setup { background:var(--secondary-background-color,#f3f6f2); }
 `;
