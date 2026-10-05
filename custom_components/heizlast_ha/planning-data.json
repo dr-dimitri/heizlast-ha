@@ -1,0 +1,850 @@
+{
+  "schema_version": 1,
+  "calculation_date": "2026-05-21",
+  "building": {
+    "heat_load_w": 5989,
+    "heated_net_floor_area_m2": 184.1
+  },
+  "room_heat_load_sum_w": 7354.5,
+  "zones": [
+    {
+      "id": 1,
+      "name": "Abstellr.",
+      "floor": "EG",
+      "area": 6.3,
+      "temperature": 22.0,
+      "load": 303.02,
+      "transmission": 207.8,
+      "ventilation": 95.23,
+      "page": 6,
+      "uncertain": false
+    },
+    {
+      "id": 2,
+      "name": "HWR",
+      "floor": "EG",
+      "area": 8.14,
+      "temperature": 22.0,
+      "load": 276.1,
+      "transmission": 153.1,
+      "ventilation": 123.05,
+      "page": 7,
+      "uncertain": false
+    },
+    {
+      "id": 3,
+      "name": "Dusche/WC",
+      "floor": "EG",
+      "area": 5.25,
+      "temperature": 24.0,
+      "load": 261.89,
+      "transmission": 177.9,
+      "ventilation": 84.0,
+      "page": 8,
+      "uncertain": false
+    },
+    {
+      "id": 4,
+      "name": "Gard./Diele",
+      "floor": "EG",
+      "area": 15.07,
+      "temperature": 22.0,
+      "load": 613.5,
+      "transmission": 385.7,
+      "ventilation": 227.8,
+      "page": 9,
+      "uncertain": false
+    },
+    {
+      "id": 5,
+      "name": "Wohnen/Essen/Küche",
+      "floor": "EG",
+      "area": 56.46,
+      "temperature": 22.0,
+      "load": 2432.26,
+      "transmission": 1578.8,
+      "ventilation": 853.47,
+      "page": 10,
+      "uncertain": false
+    },
+    {
+      "id": 6,
+      "name": "Schlafen/Ankleide",
+      "floor": "OG",
+      "area": 26.35,
+      "temperature": 22.0,
+      "load": 917.0,
+      "transmission": 537.8,
+      "ventilation": 379.17,
+      "page": 11,
+      "uncertain": false
+    },
+    {
+      "id": 7,
+      "name": "Bad",
+      "floor": "OG",
+      "area": 12.74,
+      "temperature": 24.0,
+      "load": 641.59,
+      "transmission": 447.5,
+      "ventilation": 194.04,
+      "page": 12,
+      "uncertain": true
+    },
+    {
+      "id": 8,
+      "name": "Diele",
+      "floor": "OG",
+      "area": 11.02,
+      "temperature": 22.0,
+      "load": 202.19,
+      "transmission": 43.6,
+      "ventilation": 158.57,
+      "page": 13,
+      "uncertain": false
+    },
+    {
+      "id": 9,
+      "name": "Kind 1",
+      "floor": "OG",
+      "area": 16.0,
+      "temperature": 22.0,
+      "load": 657.99,
+      "transmission": 427.8,
+      "ventilation": 230.23,
+      "page": 14,
+      "uncertain": false
+    },
+    {
+      "id": 10,
+      "name": "Büro",
+      "floor": "OG",
+      "area": 12.95,
+      "temperature": 22.0,
+      "load": 508.17,
+      "transmission": 321.8,
+      "ventilation": 186.35,
+      "page": 15,
+      "uncertain": false
+    },
+    {
+      "id": 11,
+      "name": "Kind 2",
+      "floor": "OG",
+      "area": 13.84,
+      "temperature": 22.0,
+      "load": 540.84,
+      "transmission": 341.7,
+      "ventilation": 199.15,
+      "page": 16,
+      "uncertain": false
+    }
+  ],
+  "shapes": [
+    {
+      "key": "eg_abstell",
+      "name": "Abstellr.",
+      "short": "Abstellr.",
+      "floor": "EG",
+      "zone": 1,
+      "area": 6.3,
+      "poly": [
+        [
+          15.579,
+          137.355
+        ],
+        [
+          122.619,
+          137.355
+        ],
+        [
+          122.619,
+          213.294
+        ],
+        [
+          15.579,
+          213.294
+        ]
+      ],
+      "center": [
+        61.98,
+        176.721
+      ]
+    },
+    {
+      "key": "eg_hwr",
+      "name": "HWR",
+      "short": "HWR",
+      "floor": "EG",
+      "zone": 2,
+      "area": 8.14,
+      "poly": [
+        [
+          126.695,
+          137.355
+        ],
+        [
+          264.949,
+          137.355
+        ],
+        [
+          264.949,
+          213.294
+        ],
+        [
+          126.695,
+          213.294
+        ]
+      ],
+      "center": [
+        168.629,
+        176.721
+      ]
+    },
+    {
+      "key": "eg_dusche",
+      "name": "Dusche/WC",
+      "short": "Dusche/WC",
+      "floor": "EG",
+      "zone": 3,
+      "area": 5.25,
+      "poly": [
+        [
+          269.025,
+          137.355
+        ],
+        [
+          358.31,
+          137.355
+        ],
+        [
+          358.31,
+          213.294
+        ],
+        [
+          269.025,
+          213.294
+        ]
+      ],
+      "center": [
+        311.574,
+        175.604
+      ]
+    },
+    {
+      "key": "eg_gard",
+      "name": "Gard.",
+      "short": "Gard.",
+      "floor": "EG",
+      "zone": 4,
+      "area": 3.68,
+      "poly": [
+        [
+          178.345,
+          221.782
+        ],
+        [
+          362.386,
+          221.782
+        ],
+        [
+          362.386,
+          137.355
+        ],
+        [
+          424.98,
+          137.355
+        ],
+        [
+          424.98,
+          213.294
+        ],
+        [
+          398.289,
+          213.294
+        ],
+        [
+          398.289,
+          221.782
+        ],
+        [
+          424.98,
+          221.782
+        ],
+        [
+          424.98,
+          302.299
+        ],
+        [
+          289.853,
+          302.299
+        ],
+        [
+          289.853,
+          310.898
+        ],
+        [
+          227.259,
+          310.898
+        ],
+        [
+          227.259,
+          302.299
+        ],
+        [
+          188.396,
+          302.299
+        ],
+        [
+          188.396,
+          288.117
+        ],
+        [
+          178.345,
+          288.117
+        ]
+      ],
+      "center": [
+        395.33,
+        176.162
+      ]
+    },
+    {
+      "key": "eg_diele",
+      "name": "Diele",
+      "short": "Diele",
+      "floor": "EG",
+      "zone": 4,
+      "area": 11.39,
+      "poly": null,
+      "center": [
+        197.107,
+        244.284
+      ]
+    },
+    {
+      "key": "eg_wohnen",
+      "name": "Wohnen",
+      "short": "Wohnen",
+      "floor": "EG",
+      "zone": 5,
+      "area": 25.07,
+      "poly": [
+        [
+          15.579,
+          221.782
+        ],
+        [
+          169.858,
+          221.782
+        ],
+        [
+          169.858,
+          364.0
+        ],
+        [
+          178.345,
+          364.0
+        ],
+        [
+          178.345,
+          310.898
+        ],
+        [
+          424.98,
+          310.898
+        ],
+        [
+          424.98,
+          440.107
+        ],
+        [
+          282.706,
+          440.107
+        ],
+        [
+          282.706,
+          493.487
+        ],
+        [
+          269.416,
+          493.487
+        ],
+        [
+          269.416,
+          508.563
+        ],
+        [
+          171.31,
+          508.563
+        ],
+        [
+          171.31,
+          493.487
+        ],
+        [
+          157.741,
+          493.487
+        ],
+        [
+          157.741,
+          440.107
+        ],
+        [
+          15.579,
+          440.107
+        ]
+      ],
+      "center": [
+        92.132,
+        375.503
+      ]
+    },
+    {
+      "key": "eg_essen",
+      "name": "Essen",
+      "short": "Essen",
+      "floor": "EG",
+      "zone": 5,
+      "area": 18.94,
+      "poly": null,
+      "center": [
+        218.883,
+        398.954
+      ]
+    },
+    {
+      "key": "eg_kueche",
+      "name": "Küche",
+      "short": "Küche",
+      "floor": "EG",
+      "zone": 5,
+      "area": 12.45,
+      "poly": null,
+      "center": [
+        370.761,
+        415.706
+      ]
+    },
+    {
+      "key": "og-schlafen",
+      "name": "Schlafen",
+      "short": "Schlafen",
+      "floor": "OG",
+      "zone": 6,
+      "area": 18.67,
+      "poly": [
+        [
+          15.162,
+          137.162
+        ],
+        [
+          169.567,
+          137.162
+        ],
+        [
+          169.567,
+          238.934
+        ],
+        [
+          173.633,
+          238.934
+        ],
+        [
+          173.633,
+          269.954
+        ],
+        [
+          169.567,
+          269.954
+        ],
+        [
+          169.567,
+          293.292
+        ],
+        [
+          15.162,
+          293.292
+        ]
+      ],
+      "center": [
+        92.281,
+        230.922
+      ]
+    },
+    {
+      "key": "og-ankleide",
+      "name": "Ankleide",
+      "short": "Ankleide",
+      "floor": "OG",
+      "zone": 6,
+      "area": 7.68,
+      "poly": [
+        [
+          173.633,
+          137.162
+        ],
+        [
+          300.344,
+          137.162
+        ],
+        [
+          300.344,
+          215.43
+        ],
+        [
+          173.633,
+          215.43
+        ]
+      ],
+      "center": [
+        236.909,
+        183.67
+      ]
+    },
+    {
+      "key": "og-sanitaer-unbenannt",
+      "name": "Sanitärraum (unbeschriftet)",
+      "short": "Bad",
+      "floor": "OG",
+      "zone": 7,
+      "area": null,
+      "poly": [
+        [
+          304.414,
+          137.162
+        ],
+        [
+          424.838,
+          137.162
+        ],
+        [
+          424.838,
+          302.206
+        ],
+        [
+          342.131,
+          302.206
+        ],
+        [
+          342.131,
+          266.131
+        ],
+        [
+          355.692,
+          266.131
+        ],
+        [
+          355.692,
+          221.678
+        ],
+        [
+          337.982,
+          221.678
+        ],
+        [
+          337.982,
+          215.43
+        ],
+        [
+          304.414,
+          215.43
+        ]
+      ],
+      "center": [
+        372.082,
+        191.476
+      ]
+    },
+    {
+      "key": "og-diele",
+      "name": "Diele",
+      "short": "Diele",
+      "floor": "OG",
+      "zone": 8,
+      "area": 11.02,
+      "poly": [
+        [
+          177.742,
+          221.678
+        ],
+        [
+          217.474,
+          221.678
+        ],
+        [
+          217.474,
+          266.131
+        ],
+        [
+          337.982,
+          266.131
+        ],
+        [
+          337.982,
+          302.206
+        ],
+        [
+          286.62,
+          302.206
+        ],
+        [
+          286.62,
+          355.622
+        ],
+        [
+          246.77,
+          355.622
+        ],
+        [
+          246.77,
+          359.688
+        ],
+        [
+          215.459,
+          359.688
+        ],
+        [
+          215.459,
+          355.622
+        ],
+        [
+          177.742,
+          355.622
+        ],
+        [
+          177.742,
+          314.698
+        ],
+        [
+          169.567,
+          314.698
+        ],
+        [
+          169.567,
+          297.441
+        ],
+        [
+          177.742,
+          297.441
+        ],
+        [
+          177.742,
+          269.954
+        ],
+        [
+          173.633,
+          269.954
+        ],
+        [
+          173.633,
+          238.934
+        ],
+        [
+          177.742,
+          238.934
+        ]
+      ],
+      "center": [
+        231.568,
+        322.957
+      ]
+    },
+    {
+      "key": "og-kind-i",
+      "name": "Kind I",
+      "short": "Kind I",
+      "floor": "OG",
+      "zone": 9,
+      "area": 16.0,
+      "poly": [
+        [
+          15.162,
+          297.441
+        ],
+        [
+          169.567,
+          297.441
+        ],
+        [
+          169.567,
+          355.622
+        ],
+        [
+          153.38,
+          355.622
+        ],
+        [
+          153.38,
+          440.138
+        ],
+        [
+          15.162,
+          440.138
+        ]
+      ],
+      "center": [
+        89.817,
+        354.593
+      ]
+    },
+    {
+      "key": "og-buero",
+      "name": "Büro",
+      "short": "Büro",
+      "floor": "OG",
+      "zone": 10,
+      "area": 12.95,
+      "poly": [
+        [
+          157.445,
+          359.688
+        ],
+        [
+          215.459,
+          359.688
+        ],
+        [
+          215.459,
+          363.754
+        ],
+        [
+          246.77,
+          363.754
+        ],
+        [
+          246.77,
+          359.688
+        ],
+        [
+          282.555,
+          359.688
+        ],
+        [
+          282.555,
+          493.466
+        ],
+        [
+          157.445,
+          493.466
+        ]
+      ],
+      "center": [
+        219.652,
+        417.456
+      ]
+    },
+    {
+      "key": "og-kind-ii",
+      "name": "Kind II",
+      "short": "Kind II",
+      "floor": "OG",
+      "zone": 11,
+      "area": 13.84,
+      "poly": [
+        [
+          286.62,
+          310.795
+        ],
+        [
+          424.838,
+          310.795
+        ],
+        [
+          424.838,
+          440.138
+        ],
+        [
+          286.62,
+          440.138
+        ]
+      ],
+      "center": [
+        357.702,
+        366.508
+      ]
+    }
+  ],
+  "floors": {
+    "EG": {
+      "bounds": [
+        0,
+        122,
+        440,
+        522
+      ],
+      "stairs": [
+        [
+          212.518,
+          221.782
+        ],
+        [
+          362.386,
+          221.782
+        ],
+        [
+          362.386,
+          257.183
+        ],
+        [
+          212.518,
+          257.183
+        ]
+      ]
+    },
+    "OG": {
+      "bounds": [
+        0,
+        122,
+        440,
+        522
+      ],
+      "stairs": [
+        [
+          217.474,
+          221.678
+        ],
+        [
+          355.692,
+          221.678
+        ],
+        [
+          355.692,
+          266.131
+        ],
+        [
+          217.474,
+          266.131
+        ]
+      ]
+    }
+  },
+  "sources": {
+    "building": {
+      "document": "Heizlastberechnung",
+      "page": 3,
+      "sheet": "G2"
+    },
+    "room_sum": {
+      "document": "Heizlastberechnung",
+      "page": 5,
+      "sheet": "Z2"
+    },
+    "plans": {
+      "EG": {
+        "document": "Plan EG",
+        "page": 1,
+        "sheet": "I"
+      },
+      "OG": {
+        "document": "Plan OG",
+        "page": 1,
+        "sheet": "II"
+      }
+    }
+  },
+  "notes": {
+    "room_sum": "Lüftungsverluste gehen gemäß Heizlastberechnung, Seite 5, Fußnote 4, nur hälftig in die Gebäudeheizlast ein. Deshalb ist die Raumheizlastsumme größer als die Gebäudeheizlast.",
+    "geometry": "Vereinfachte Raumkonturen aus den Plänen, keine Vermessung. Die angegebenen Flächen stammen aus den Dokumenten."
+  }
+}

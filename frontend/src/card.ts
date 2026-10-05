@@ -6,6 +6,7 @@ import { buildPrompt, copyPrompt, promptRequirements } from "./prompt";
 import { parseImport, reconcileBindings, validatePlan } from "./validation";
 import { interiorLabelPoint, mergeRooms, nearestBoundaryPoint, rectanglePolygon, splitRoom } from "./room-operations";
 import { createFloor, createRoom, moveFloor, renameFloor, uniqueId } from "./editor-state";
+import "./planning-dashboard";
 import { type CardConfig, type Floor, type Floorplan, type HomeAssistant, type Point, type Project, type Room, bindingFor, clone, entityName, formatNumber, temperatureLabel, temperatureSensors } from "./types";
 
 const houseIcon = svg`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m3 10 9-7 9 7M5 9v11h14V9M9 20v-7h6v7"/><path d="M15 4V2h3v4"/></svg>`;
@@ -648,7 +649,7 @@ export class HeizlastHaCard extends LitElement {
   private renderEditor() {
     const steps = ["Quelle", "Geschosse", "Räume", "Sensoren", "Prüfen"];
     return html`<nav class="editor-progress" aria-label="Grundriss erstellen">${steps.map((name, index) => html`<button ?disabled=${this.busy || (index > 1 && !this.draft)} aria-current=${this.editorStep === index ? "step" : nothing} @click=${() => this.setStep(index)}><span class="step-number">${index + 1}</span> ${name}</button>${index < 4 ? html`<span class="step-separator" aria-hidden="true">—</span>` : nothing}`)}</nav>
-      ${this.editorStep === 0 ? html`<section class="editor-step"><div class="editor-step-heading"><h2>Wie möchten Sie beginnen?</h2><p class="hint">JSON-Import und Neuanlage führen in denselben Editor.</p></div><div class="editor-source-options"><div class="editor-source-option"><h3>Neuer Grundriss</h3><p>Geschosse und Räume direkt zeichnen.</p><button class="primary" ?disabled=${this.busy} @click=${() => this.startBlank()}>Neuen Grundriss erstellen</button></div><div class="editor-source-option"><h3>LLM-JSON</h3><p>Vorhandene Konturen importieren und weiterbearbeiten.</p><p class="hint">Der Originalgrundriss wird nur im externen LLM benötigt.</p></div></div></section>${this.renderSetup()}` : nothing}
+      ${this.editorStep === 0 ? html`<section class="editor-step"><div class="editor-step-heading"><h2>Wie möchten Sie beginnen?</h2><p class="hint">JSON-Import und Neuanlage führen in denselben Editor.</p></div><div class="editor-source-options"><div class="editor-source-option"><h3>Neuer Grundriss</h3><p>Geschosse und Räume direkt zeichnen.</p><button class="primary" ?disabled=${this.busy} @click=${() => this.startBlank()}>Neuen Grundriss erstellen</button></div><div class="editor-source-option"><h3>LLM-JSON</h3><p>Vorhandene Konturen importieren und weiterbearbeiten.</p><p class="hint">Originaldokumente bleiben lokal. Für externe LLM nur vollständig anonymisierte Pläne verwenden.</p></div></div></section>${this.renderSetup()}` : nothing}
       ${this.editorStep === 4 ? this.renderReview() : nothing}
       ${this.editorStep === 3 ? html`<section class="editor-step"><h2>Temperatursensoren prüfen</h2><div class="editor-room-group">${this.draft?.floors.map((floor) => html`<h3>${floor.name}</h3>${floor.rooms.map((room) => html`<button ?disabled=${this.busy} @click=${() => { this.chooseFloor(floor.id); this.selectedRoom = room.id; }} aria-pressed=${this.selectedRoom === room.id}>${room.name} · ${bindingFor(this.bindings, room.id).length ? `${bindingFor(this.bindings, room.id).length} Sensor(en)` : "Kein Sensor zugeordnet"}</button>`)}`)}</div></section>` : nothing}
       <div class="editor-layout"><nav class="editor-rail" aria-label="Geschosse und Räume"><div class="editor-rail-heading"><h3>Geschosse</h3><button aria-label="Geschoss hinzufügen" ?disabled=${this.busy} @click=${() => { this.floorName = `Geschoss ${(this.draft?.floors.length ?? 0) + 1}`; this.addFloor(); this.setStep(1); }}>+</button></div>${this.draft?.floors.map((floor) => html`<div class="editor-floor-group"><button class="editor-floor" aria-pressed=${floor.id === this.floor?.id} ?disabled=${this.busy} @click=${() => { this.chooseFloor(floor.id); this.editing = this.editorStep === 2; }}>${floor.name}</button>${floor.id === this.floor?.id ? html`<div class="editor-room-group">${floor.rooms.map((room) => html`<button class="editor-room" aria-pressed=${room.id === this.selectedRoom} ?disabled=${this.busy} @click=${() => { this.cancelDrawing(); this.selectedRoom = room.id; this.editing = this.editorStep === 2; }}>${room.name}</button>`)}</div>` : nothing}</div>`) ?? html`<p class="hint">Noch kein Geschoss.</p>`}<div class="editor-rail-actions"><button ?disabled=${this.busy || !this.floor} @click=${() => this.selectTool("rectangle")}>+ Raum hinzufügen</button></div></nav>
@@ -711,7 +712,7 @@ export class HeizlastHaCard extends LitElement {
     const missing = promptRequirements(this.floorId, this.floorName);
     return html`<section class="setup" aria-label="Grundriss einrichten"><div class="steps">
       <div class="step"><div class="step-heading"><span class="step-number">1</span><h2>LLM-Prompt vorbereiten</h2></div>
-        <p class="hint">Kein Bild-Upload nötig. Geben Sie Ihren Grundriss zusammen mit dem Prompt direkt an Ihr LLM weiter.</p>
+        <p class="hint">Originalpläne bleiben lokal. Verwenden Sie den Prompt mit einem lokalen LLM oder ausschließlich mit vollständig anonymisierten Plänen.</p>
         <div class="field-row"><label><span>Etagen-ID</span><input aria-label="Etagen-ID" .value=${this.floorId} maxlength="64" @input=${(event: Event) => this.floorId = (event.target as HTMLInputElement).value}/></label><label><span>Etagenname</span><input aria-label="Etagenname" .value=${this.floorName} maxlength="120" @input=${(event: Event) => this.floorName = (event.target as HTMLInputElement).value}/></label></div>
         <button class="primary" @click=${() => this.openPrompt()} ?disabled=${missing.length > 0 || this.busy}>${copyIcon} LLM-Prompt anzeigen</button>
         ${missing.length ? html`<p class="hint">${missing.join(" ")}</p>` : html`<p class="hint">Das LLM liefert einen digitalen Grundriss, der später ohne das Original nutzbar ist.</p>`}
@@ -754,7 +755,7 @@ export class HeizlastHaCard extends LitElement {
 
   private renderPrompt() {
     const prompt = buildPrompt(this.floorId, this.floorName);
-    return html`<div class="dialog-backdrop" @click=${(event: Event) => { if (event.target === event.currentTarget) this.closeDialog(); }} @keydown=${(event: KeyboardEvent) => this.dialogKey(event)}><section class="dialog" role="dialog" aria-modal="true" aria-label="LLM-Prompt"><div class="dialog-top"><div><h2>LLM-Prompt</h2><p class="hint">${this.floorName} · eigenständiger digitaler Grundriss</p></div><button aria-label="Dialog schließen" class="icon" @click=${() => this.closeDialog()}>✕</button></div><div class="notice">Kopieren Sie den Prompt und fügen Sie Ihren Grundriss direkt im gewünschten LLM bei, etwa als Bild oder PDF. Hier wird kein Bild hochgeladen. Importieren Sie anschließend die JSON-Antwort. Für die spätere Anzeige und Bearbeitung wird der ursprüngliche Plan nicht benötigt. Die Anwendung führt selbst keinen LLM-Aufruf aus.</div><textarea class="prompt-text" aria-label="Vollständiger LLM-Prompt" readonly .value=${prompt}></textarea>${this.copied ? html`<p class="hint" role="status">${this.copied}</p>` : nothing}<div class="dialog-actions"><button @click=${() => { const field = this.renderRoot.querySelector<HTMLTextAreaElement>(".prompt-text"); field?.focus(); field?.select(); }}>Alles markieren</button><button class="primary" @click=${() => void this.copy()}>${copyIcon} Prompt kopieren</button></div></section></div>`;
+    return html`<div class="dialog-backdrop" @click=${(event: Event) => { if (event.target === event.currentTarget) this.closeDialog(); }} @keydown=${(event: KeyboardEvent) => this.dialogKey(event)}><section class="dialog" role="dialog" aria-modal="true" aria-label="LLM-Prompt"><div class="dialog-top"><div><h2>LLM-Prompt</h2><p class="hint">${this.floorName} · eigenständiger digitaler Grundriss</p></div><button aria-label="Dialog schließen" class="icon" @click=${() => this.closeDialog()}>✕</button></div><div class="notice">Kopieren Sie den Prompt und verwenden Sie Originalpläne ausschließlich lokal. Für externe LLM müssen Pläne vorher vollständig anonymisiert sein. Übernehmen Sie keine Namen, Orte, Anschriften oder persönlichen Dateipfade in das JSON. Importieren Sie anschließend die JSON-Antwort. Die Anwendung lädt keine Dokumente hoch und führt selbst keinen LLM-Aufruf aus.</div><textarea class="prompt-text" aria-label="Vollständiger LLM-Prompt" readonly .value=${prompt}></textarea>${this.copied ? html`<p class="hint" role="status">${this.copied}</p>` : nothing}<div class="dialog-actions"><button @click=${() => { const field = this.renderRoot.querySelector<HTMLTextAreaElement>(".prompt-text"); field?.focus(); field?.select(); }}>Alles markieren</button><button class="primary" @click=${() => void this.copy()}>${copyIcon} Prompt kopieren</button></div></section></div>`;
   }
 
   private renderConfirmation() {
@@ -779,21 +780,28 @@ class HeizlastHaCardEditor extends LitElement {
   }
 }
 
-/** The integration's sidebar dashboard uses the same card and authenticated API. */
+/** Both dashboard modes use Home Assistant's authenticated state and API. */
 export class HeizlastHaPanel extends LitElement {
-  static properties = { hass: { attribute: false }, narrow: { type: Boolean } };
+  static properties = { hass: { attribute: false }, narrow: { type: Boolean }, legacy: { state: true }, legacyOpened: { state: true } };
   static styles = css`
     :host { display: block; height: 100%; overflow: auto; background: var(--primary-background-color); color: var(--primary-text-color); }
     header { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; height: var(--header-height, 56px); padding: 0 16px; background: var(--app-header-background-color, var(--primary-color)); color: var(--app-header-text-color, white); }
     h1 { margin: 0 0 0 16px; font-size: 20px; font-weight: 400; }
     main { max-width: 1600px; margin: 0 auto; padding: 24px; }
+    nav { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+    nav button { font: inherit; cursor: pointer; background: var(--card-background-color); color: var(--primary-text-color); border: 1px solid var(--divider-color); border-radius: 9px; padding: 10px 14px; }
+    nav button[aria-pressed=true] { color: var(--primary-color); border-color: var(--primary-color); }
+    nav button:focus-visible { outline: 3px solid var(--primary-color); outline-offset: 3px; }
+    [hidden] { display: none; }
     @media (max-width: 600px) { main { padding: 12px; } }
   `;
   hass?: HomeAssistant;
   narrow = false;
+  private legacy = false;
+  private legacyOpened = false;
 
   protected render() {
-    return html`<header><hass-menu-button .hass=${this.hass} .narrow=${this.narrow}></hass-menu-button><h1>Heizlast HA</h1></header><main><heizlast-ha-card .hass=${this.hass}></heizlast-ha-card></main>`;
+    return html`<header><hass-menu-button .hass=${this.hass} .narrow=${this.narrow}></hass-menu-button><h1>Heizlast HA</h1></header><main><nav aria-label="Dashboard-Ansicht"><button aria-pressed=${!this.legacy} @click=${() => this.legacy = false}>Heizlast-Grundriss</button><button aria-pressed=${this.legacy} @click=${() => { this.legacy = true; this.legacyOpened = true; }}>Eigene Grundrisse</button></nav><div ?hidden=${this.legacy}><heizlast-grundriss-card .hass=${this.hass}></heizlast-grundriss-card></div>${this.legacyOpened ? html`<div ?hidden=${!this.legacy}><heizlast-ha-card .hass=${this.hass}></heizlast-ha-card></div>` : nothing}</main>`;
   }
 }
 

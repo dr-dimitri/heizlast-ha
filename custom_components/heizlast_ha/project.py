@@ -10,6 +10,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
 from .const import STORAGE_KEY, STORAGE_VERSION
+from .planning import validate_planning_bindings
 from .validation import (
     JsonObject,
     ProjectError,
@@ -82,6 +83,12 @@ class Project:
         """Validate persisted geometry and sensor assignments."""
         plan = validate_plan(stored["plan"], self.validator)
         validate_bindings(plan, stored["bindings"], stored["bindings"], lambda _: False)
+        if "planning_bindings" in stored:
+            validate_planning_bindings(
+                stored["planning_bindings"],
+                stored["planning_bindings"],
+                lambda _: False,
+            )
 
     def snapshot(self) -> JsonObject:
         """Return an isolated copy; callers cannot accidentally mutate persistence."""
@@ -145,6 +152,37 @@ class Project:
                 "plan": checked_plan,
                 "bindings": checked_bindings,
             }
+            if "planning_bindings" in self.data:
+                candidate["planning_bindings"] = deepcopy(
+                    self.data["planning_bindings"]
+                )
+            await self._async_persist(candidate)
+            return self.snapshot()
+
+    async def async_save_planning_bindings(
+        self,
+        revision: int,
+        bindings: Any,
+    ) -> JsonObject:
+        """Persist calculation-zone sensors without replacing an editable plan."""
+        async with self.lock:
+            self._ensure_active()
+            if type(revision) is not int or revision != self.data["revision"]:
+                raise ProjectError(
+                    "Das Projekt wurde zwischenzeitlich geändert. "
+                    "Bitte neu laden und Änderungen erneut prüfen.",
+                    "conflict",
+                )
+            checked = validate_planning_bindings(
+                bindings,
+                self.data.get("planning_bindings", {}),
+                lambda entity_id: is_temperature_state(
+                    entity_id, self.hass.states.get(entity_id)
+                ),
+            )
+            candidate = deepcopy(self.data)
+            candidate["revision"] += 1
+            candidate["planning_bindings"] = checked
             await self._async_persist(candidate)
             return self.snapshot()
 
