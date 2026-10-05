@@ -7,10 +7,10 @@ const sensor = (id: string, value = "20.7"): HassState => ({ entity_id: id, stat
 const snapshot = (): Project => ({ revision: 4, planning_bindings: { "5": ["sensor.first"] } });
 const content = (card: HeizlastGrundrissCard) => card.shadowRoot!.textContent!;
 async function settle(card: HeizlastGrundrissCard) { await card.updateComplete; await new Promise((resolve) => setTimeout(resolve, 0)); await card.updateComplete; }
-async function mount(admin = false, states: Record<string, HassState> = {}) {
+async function mount(admin = false, states: Record<string, HassState> = {}, latitude: number | undefined = 50) {
   const project = snapshot();
   const callWS = vi.fn(async () => clone(project));
-  const hass = { user: { is_admin: admin }, states, callWS } as HomeAssistant;
+  const hass = { user: { is_admin: admin }, config: { latitude }, states, callWS } as HomeAssistant;
   const card = new HeizlastGrundrissCard(); card.hass = hass; document.body.append(card); await settle(card);
   return { card, hass, callWS, project };
 }
@@ -24,9 +24,13 @@ async function change(card: HeizlastGrundrissCard, label: string, value: string)
 async function weather(card: HeizlastGrundrissCard, value: "sunny" | "cloudy") {
   const select = card.shadowRoot!.querySelector<HTMLSelectElement>('select[aria-label="Wetter"]')!; select.value = value; select.dispatchEvent(new Event("change", { bubbles: true })); await settle(card);
 }
+async function selectMonth(card: HeizlastGrundrissCard, value: string) {
+  const select = card.shadowRoot!.querySelector<HTMLSelectElement>('select[aria-label="Monat"]')!; select.value = value; select.dispatchEvent(new Event("change", { bubbles: true })); await settle(card);
+}
 const readings = (card: HeizlastGrundrissCard) => [...card.shadowRoot!.querySelectorAll(".room-readings")].map((row) => row.textContent!);
 const polygons = (card: HeizlastGrundrissCard) => [...card.shadowRoot!.querySelectorAll("polygon.room-shape")].map((polygon) => polygon.getAttribute("points"));
 function metric(card: HeizlastGrundrissCard, label: string) { return [...card.shadowRoot!.querySelectorAll(".metric")].find((metric) => metric.querySelector(".metric-label")!.textContent!.includes(label))!.querySelector("strong")!.textContent; }
+function detailValue(card: HeizlastGrundrissCard, label: string) { return [...card.shadowRoot!.querySelectorAll(".simulation-results .loss")].find((row) => row.querySelector("span")!.textContent === label)!.querySelector("b")!.textContent; }
 afterEach(() => document.body.replaceChildren());
 
 describe("simulation in the existing fixed floorplan", () => {
@@ -41,7 +45,12 @@ describe("simulation in the existing fixed floorplan", () => {
     expect(numberInput(card, "Vorlauf (°C)").value).toBe(String(planningData.underfloor_heating.design_supply_temperature_c));
     expect(numberInput(card, "Gewünschte Innentemperatur (°C)").value).toBe("22");
     expect(numberInput(card, "Außentemperatur (°C)").value).toBe("5");
-    expect(content(card)).toContain("Wärmebedarf / mögliche FBH-Leistung / Bilanz (alle W)");
+    expect(card.shadowRoot!.querySelector<HTMLSelectElement>('select[aria-label="Monat"]')!.value).toBe("1");
+    expect(card.shadowRoot!.querySelectorAll('select[aria-label="Monat"] option')).toHaveLength(12);
+    expect(content(card)).toContain("Solarer Referenztag: 15. Januar");
+    expect(content(card)).toContain("Standortbreite aus Home Assistant: 50°");
+    expect(numberInput(card, "Breitengrad für das Szenario (°)")).toBeNull();
+    expect(content(card)).toContain("Mittlerer Wärmebedarf / mögliche FBH-Leistung / mittlere Bilanz (alle W)");
     await press(card, "Obergeschoss"); const upperPolygons = polygons(card);
     expect(card.shadowRoot!.querySelectorAll(".room-label")).toHaveLength(6);
     card.shadowRoot!.querySelector<HTMLButtonElement>('[data-shape="og-bad"]')!.click(); await settle(card);
@@ -57,10 +66,12 @@ describe("simulation in the existing fixed floorplan", () => {
     await press(card, "Simulation");
     await change(card, "Vorlauf (°C)", "30"); await change(card, "Gewünschte Innentemperatur (°C)", "21"); await change(card, "Außentemperatur (°C)", "-5"); await weather(card, "cloudy");
     await change(card, "Aktiver Flächenanteil (0–1)", "0.65");
+    await selectMonth(card, "12");
     await press(card, "Obergeschoss"); await press(card, "Live"); await press(card, "Simulation");
     expect(numberInput(card, "Vorlauf (°C)").value).toBe("30"); expect(numberInput(card, "Gewünschte Innentemperatur (°C)").value).toBe("21");
     expect(numberInput(card, "Außentemperatur (°C)").value).toBe("-5"); expect(numberInput(card, "Aktiver Flächenanteil (0–1)").value).toBe("0.65");
     expect(card.shadowRoot!.querySelector<HTMLSelectElement>('select[aria-label="Wetter"]')!.value).toBe("cloudy");
+    expect(card.shadowRoot!.querySelector<HTMLSelectElement>('select[aria-label="Monat"]')!.value).toBe("12");
     expect(card.shadowRoot!.querySelector('input[type="checkbox"]')).toBeNull();
     expect(content(card)).not.toContain("Temperatursensoren zuordnen");
     expect(callWS).toHaveBeenCalledTimes(1); expect(project).toEqual(snapshot()); expect(JSON.stringify(planningData)).toBe(originalData);
@@ -71,36 +82,114 @@ describe("simulation in the existing fixed floorplan", () => {
     await press(card, "Simulation"); const initialReadings = readings(card);
     card.hass = { ...hass, states: { "sensor.first": sensor("sensor.first", "unknown") } }; await settle(card);
     expect(readings(card)).toEqual(initialReadings); expect(callWS).toHaveBeenCalledTimes(1);
-    const failed = new HeizlastGrundrissCard(); failed.hass = { states: {}, callWS: async () => { throw new Error("offline"); } }; document.body.append(failed); await settle(failed);
+    const failed = new HeizlastGrundrissCard(); failed.hass = { states: {}, config: { latitude: 50 }, callWS: async () => { throw new Error("offline"); } }; document.body.append(failed); await settle(failed);
     expect(content(failed)).toContain("Sensorzuordnungen konnten nicht geladen werden"); await press(failed, "Simulation");
     expect(failed.shadowRoot!.querySelector('[role="alert"]')).toBeNull();
     expect(readings(failed)).toEqual(initialReadings); await change(failed, "Außentemperatur (°C)", "-10"); expect(readings(failed)).not.toEqual(initialReadings);
     const disconnected = new HeizlastGrundrissCard(); document.body.append(disconnected); await settle(disconnected); await press(disconnected, "Simulation");
-    expect(readings(disconnected)).toEqual(initialReadings); expect(numberInput(disconnected, "Vorlauf (°C)").disabled).toBe(false);
+    expect(readings(disconnected)).toEqual(Array(5).fill("? / ? / ?"));
+    expect(numberInput(disconnected, "Vorlauf (°C)").disabled).toBe(false);
+    await change(disconnected, "Breitengrad für das Szenario (°)", "50"); expect(readings(disconnected)).toEqual(initialReadings);
   });
 
   it("compares each room's possible output with demand and marks deficits using both values and a text legend", async () => {
     const { card } = await mount(); await press(card, "Simulation"); await weather(card, "cloudy");
-    await change(card, "Diffuse Strahlung bewölkt (W/m²)", "0"); await change(card, "Vorlauf (°C)", "22");
-    expect(metric(card, "Mögliche FBH-Leistung")).toBe("≈ 0 W"); expect(metric(card, "Räume mit Defizit")).toBe("5 / 5");
-    expect(content(card)).toContain("Defizit · zusätzliche Leistung nötig"); expect(content(card)).toContain("Defizit:");
-    for (const label of card.shadowRoot!.querySelectorAll(".room-label")) expect(label.getAttribute("aria-label")).toContain("Defizit:");
+    await change(card, "Referenz-Diffusstrahlung bewölkt bei 45° (W/m²)", "0"); await change(card, "Vorlauf (°C)", "22");
+    expect(metric(card, "Mögliche FBH-Leistung")).toBe("≈ 0 W"); expect(metric(card, "Räume mit Spitzen-Defizit")).toBe("5 / 5");
+    expect(content(card)).toContain("Spitzen-Defizit · ohne Speicher"); expect(content(card)).toContain("Größtes Defizit (ohne Speicher):");
+    for (const label of card.shadowRoot!.querySelectorAll(".room-label")) expect(label.getAttribute("aria-label")).toContain("Größtes Defizit (ohne Speicher):");
     expect(card.shadowRoot!.querySelectorAll("polygon.room-shape.simulated-deficit")).toHaveLength(5);
     await change(card, "Vorlauf (°C)", "60");
-    expect(metric(card, "Räume mit Defizit")).toBe("0 / 5"); expect(content(card)).toContain("Leistungsreserve:");
+    expect(metric(card, "Räume mit Spitzen-Defizit")).toBe("0 / 5"); expect(content(card)).toContain("Spitzenbedarf gedeckt");
     expect(card.shadowRoot!.querySelectorAll("polygon.room-shape.simulated-covered")).toHaveLength(5);
-    expect(content(card)).toContain("ein Überschuss ist eine Leistungsreserve");
+    expect(content(card)).toContain("Die FBH-Zahl ist mögliche Heizkapazität");
   });
 
-  it("reacts to weather, sun position and heating assumptions through the adjustable model", async () => {
+  it("reacts to weather, month and heating assumptions through the adjustable model", async () => {
     const { card } = await mount(); await press(card, "Simulation"); const sunny = readings(card);
     await weather(card, "cloudy"); expect(readings(card)).not.toEqual(sunny);
-    const cloudySolar = metric(card, "Solare Gewinne"); await change(card, "Diffuse Strahlung bewölkt (W/m²)", "0");
+    const cloudySolar = metric(card, "Solare Gewinne"); await change(card, "Referenz-Diffusstrahlung bewölkt bei 45° (W/m²)", "0");
     expect(metric(card, "Solare Gewinne")).toBe("≈ 0 W"); expect(metric(card, "Solare Gewinne")).not.toBe(cloudySolar);
     const initialPower = metric(card, "Mögliche FBH-Leistung"); await change(card, "Aktiver Flächenanteil (0–1)", "0");
     expect(metric(card, "Mögliche FBH-Leistung")).toBe("≈ 0 W"); expect(initialPower).not.toBe("≈ 0 W");
-    await weather(card, "sunny"); const southSolar = metric(card, "Solare Gewinne"); await change(card, "Sonnenazimut (° · 180 = Süd)", "0");
-    expect(metric(card, "Solare Gewinne")).not.toBe(southSolar);
+    await weather(card, "sunny"); const januarySolar = metric(card, "Solare Gewinne"); await selectMonth(card, "6");
+    expect(metric(card, "Solare Gewinne")).not.toBe(januarySolar);
+  });
+
+  it("shows January's full-day demand and solar surplus separately instead of cancelling night demand with daytime sunshine", async () => {
+    const { card } = await mount(); await press(card, "Simulation");
+    expect(card.shadowRoot!.querySelector("aside h2")!.textContent).toBe("Wohnen und Essen");
+    expect(card.shadowRoot!.querySelector(".simulation-results .heat-value")!.textContent).toBe("≈ 820 W");
+    expect(detailValue(card, "Temperaturbezogene Verluste")).toBe("≈ 1.209 W");
+    expect(detailValue(card, "Solare Gewinne · Tagesmittel")).toBe("≈ 782 W");
+    expect(detailValue(card, "Solarüberschuss · Tagesmittel")).toBe("≈ 393 W");
+    expect(detailValue(card, "Größter Wärmebedarf")).toBe("≈ 1.209 W");
+    expect(content(card)).toContain("24h-Tagesmittel für den 15. des gewählten Monats");
+    expect(content(card)).toContain("Die FBH-Zahl ist mögliche Heizkapazität");
+    expect(content(card)).toContain("nicht als Nachtwärme verrechnet");
+    const januaryDemand = metric(card, "Mittlerer Wärmebedarf"), januarySolar = metric(card, "Solare Gewinne");
+    await selectMonth(card, "6");
+    expect(content(card)).toContain("Solarer Referenztag: 15. Juni");
+    expect(metric(card, "Mittlerer Wärmebedarf")).not.toBe(januaryDemand);
+    expect(metric(card, "Solare Gewinne")).not.toBe(januarySolar);
+    expect(card.shadowRoot!.querySelector(".simulation-results .heat-value")!.textContent).not.toBe("≈ 0 W");
+    expect(numberInput(card, "Sonnenazimut (° · 180 = Süd)")).toBeNull();
+    expect(content(card)).toContain("keine gemessenen Monatsmittel");
+  });
+
+  it("marks the room's peak deficit even when its mean balance is positive", async () => {
+    const { card } = await mount(); await press(card, "Simulation"); await change(card, "Vorlauf (°C)", "30");
+    const livingLabel = card.shadowRoot!.querySelector('[data-shape="eg_wohnen"]')!;
+    expect(livingLabel.querySelector(".room-readings")!.textContent).toMatch(/^≈ [\d.]+ \/ [\d.]+ \/ \+[\d.]+ W$/);
+    expect(livingLabel.getAttribute("aria-label")).toMatch(/Größtes Defizit \(ohne Speicher\): ≈ [1-9][\d.]* W/);
+    expect(card.shadowRoot!.querySelector(".simulation-balance")!.classList.contains("deficit")).toBe(true);
+    expect(card.shadowRoot!.querySelector(".simulation-balance")!.textContent).toContain("reicht zeitweise nicht");
+    const livingPolygon = [...card.shadowRoot!.querySelectorAll("polygon.room-shape")].find((polygon) => polygon.querySelector("title")!.textContent!.startsWith("Wohnen und Essen"))!;
+    expect(livingPolygon.classList.contains("simulated-deficit")).toBe(true);
+    expect(metric(card, "Räume mit Spitzen-Defizit")).not.toBe("0 / 5");
+    expect(content(card)).toContain("Eine positive mittlere Bilanz kann ein Nachtdefizit nicht ausgleichen");
+  });
+
+  it("recalculates the monthly solar profile from updated HA latitude while preserving scenario controls", async () => {
+    const { card, hass, callWS } = await mount(); await press(card, "Simulation");
+    const northernSolar = metric(card, "Solare Gewinne");
+    card.hass = { ...hass, config: { latitude: -50 } }; await settle(card);
+    expect(metric(card, "Solare Gewinne")).not.toBe(northernSolar);
+    expect(content(card)).toContain("Standortbreite aus Home Assistant: -50°");
+    expect(numberInput(card, "Breitengrad für das Szenario (°)")).toBeNull();
+    expect(card.shadowRoot!.querySelector<HTMLSelectElement>('select[aria-label="Monat"]')!.value).toBe("1");
+    card.hass = { ...hass, config: { latitude: 0 } }; await settle(card);
+    expect(card.shadowRoot!.querySelector('[role="alert"]')).toBeNull();
+    expect(content(card)).toContain("Standortbreite aus Home Assistant: 0°");
+    expect(callWS).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([undefined, NaN, Infinity, 91, -91])("requires an explicit local scenario latitude when HA's latitude is %s", async (latitude) => {
+    const { card, hass, callWS, project } = await mount();
+    card.hass = { ...hass, config: { latitude } }; await settle(card); await press(card, "Simulation");
+    expect(numberInput(card, "Breitengrad für das Szenario (°)").value).toBe("");
+    expect(numberInput(card, "Breitengrad für das Szenario (°)").getAttribute("aria-invalid")).toBe("true");
+    expect(card.shadowRoot!.querySelector('[role="alert"]')!.textContent).toContain("ein Breitengrad zwischen −90° und 90° erforderlich");
+    expect(metric(card, "Mittlerer Wärmebedarf")).toBe("?"); expect(readings(card)).toEqual(Array(5).fill("? / ? / ?"));
+    await change(card, "Breitengrad für das Szenario (°)", "91"); expect(readings(card)).toEqual(Array(5).fill("? / ? / ?"));
+    await change(card, "Breitengrad für das Szenario (°)", "0"); expect(card.shadowRoot!.querySelector('[role="alert"]')).toBeNull();
+    await press(card, "Obergeschoss"); await press(card, "Live"); await press(card, "Simulation");
+    expect(numberInput(card, "Breitengrad für das Szenario (°)").value).toBe("0");
+    expect(readings(card)).not.toContain("? / ? / ?");
+    expect(callWS).toHaveBeenCalledExactlyOnceWith({ type: "heizlast_ha/get_project" }); expect(project).toEqual(snapshot());
+  });
+
+  it("uses a newly available HA location instead of the manual latitude and keeps manual values local to the card", async () => {
+    const { card, hass, callWS } = await mount();
+    card.hass = { ...hass, config: undefined }; await settle(card); await press(card, "Simulation");
+    await change(card, "Breitengrad für das Szenario (°)", "-50"); const manualReadings = readings(card);
+    card.hass = hass; await settle(card);
+    expect(numberInput(card, "Breitengrad für das Szenario (°)")).toBeNull(); expect(readings(card)).not.toEqual(manualReadings);
+    expect(content(card)).toContain("Standortbreite aus Home Assistant: 50°");
+    const fresh = new HeizlastGrundrissCard(); document.body.append(fresh); await settle(fresh); await press(fresh, "Simulation");
+    expect(numberInput(fresh, "Breitengrad für das Szenario (°)").value).toBe("");
+    expect(readings(fresh)).toEqual(Array(5).fill("? / ? / ?"));
+    expect(callWS).toHaveBeenCalledTimes(1);
   });
 
   it("keeps invalid and incomplete scenarios visible as unknown results and recovers after valid input", async () => {
@@ -125,7 +214,7 @@ describe("simulation in the existing fixed floorplan", () => {
     const { card } = await mount(); await press(card, "Simulation");
     await change(card, "Vorlauf (°C)", "60"); await change(card, "Gewünschte Innentemperatur (°C)", "5");
     await change(card, "Außentemperatur (°C)", "-40"); await change(card, "Aktiver Flächenanteil (0–1)", "1");
-    await change(card, "Maximale Bodenoberfläche (°C)", "35"); await weather(card, "cloudy"); await change(card, "Diffuse Strahlung bewölkt (W/m²)", "0");
+    await change(card, "Maximale Bodenoberfläche (°C)", "35"); await weather(card, "cloudy"); await change(card, "Referenz-Diffusstrahlung bewölkt bei 45° (W/m²)", "0");
     expect(card.shadowRoot!.querySelector('[role="alert"]')).toBeNull();
     for (const floor of ["Erdgeschoss", "Obergeschoss"]) {
       await press(card, floor);
@@ -134,7 +223,7 @@ describe("simulation in the existing fixed floorplan", () => {
         expect(label.getAttribute("aria-label")).toMatch(/Wärmebedarf: ≈ [\d.]+ W \/ Mögliche FBH-Leistung: ≈ [\d.]+ W/);
       }
     }
-    expect(content(card)).toContain("Bilanz (alle W)");
+    expect(content(card)).toContain("mittlere Bilanz (alle W)");
   });
 
   it("preserves unsaved Live assignments while editing a simulation and sends no save requests", async () => {

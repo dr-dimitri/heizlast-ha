@@ -8,6 +8,11 @@ export interface SimulationScenario {
   indoorTemperatureC: number;
   outdoorTemperatureC: number;
   weather: "sunny" | "cloudy";
+  month: number;
+}
+
+export interface SimulationSite {
+  latitudeDeg: number;
 }
 
 export interface SimulationParameters {
@@ -20,8 +25,6 @@ export interface SimulationParameters {
   sunnyDirectNormalWPerM2: number;
   sunnyDiffuseWPerM2: number;
   cloudyDiffuseWPerM2: number;
-  sunElevationDeg: number;
-  sunAzimuthDeg: number;
   groundReflectance: number;
 }
 
@@ -54,6 +57,10 @@ export interface ZoneSimulationResult {
   floorSurfaceTemperatureC: number;
   returnTemperatureC: number;
   heatFluxWPerM2: number;
+  solarSurplusW: number;
+  peakHeatDemandW: number;
+  peakDeficitW: number;
+  peakSolarGainsW: number;
 }
 
 export interface SimulationTotals {
@@ -62,6 +69,16 @@ export interface SimulationTotals {
   heatDemandW: number;
   heatingPowerW: number;
   balanceW: number;
+  solarSurplusW: number;
+  peakHeatDemandW: number;
+  peakDeficitW: number;
+  peakSolarGainsW: number;
+}
+
+export interface SimulationSolarProfile {
+  representativeDay: 15;
+  daylightHours: number;
+  steps: 96;
 }
 
 export interface SimulationResult {
@@ -70,28 +87,30 @@ export interface SimulationResult {
   zones: ZoneSimulationResult[];
   totals: SimulationTotals | null;
   facadeIrradiance: Record<FacadeOrientation, number> | null;
+  solarProfile: SimulationSolarProfile | null;
 }
 
 type ScenarioNumberField = Exclude<keyof SimulationScenario, "weather">;
-type SimulationNumberField = ScenarioNumberField | keyof SimulationParameters;
+type SimulationNumberField = ScenarioNumberField | keyof SimulationParameters | keyof SimulationSite;
 
 export const SIMULATION_RANGES = {
   supplyTemperatureC: [0, 60], indoorTemperatureC: [5, 30], outdoorTemperatureC: [-40, 45],
+  month: [1, 12], latitudeDeg: [-90, 90],
   returnDropK: [0, 20], activeFloorFraction: [0, 1], referenceHeatFluxWPerM2: [1, 200],
   referenceIndoorTemperatureC: [5, 30], emissionExponent: [0.5, 2],
   maxFloorSurfaceTemperatureC: [15, 35], sunnyDirectNormalWPerM2: [0, 1400],
   sunnyDiffuseWPerM2: [0, 1000], cloudyDiffuseWPerM2: [0, 1000],
-  sunElevationDeg: [0, 90], sunAzimuthDeg: [0, 360], groundReflectance: [0, 1],
+  groundReflectance: [0, 1],
 } as const satisfies Record<SimulationNumberField, readonly [number, number]>;
 
 const SCENARIO_NUMBER_FIELDS: ScenarioNumberField[] = [
-  "supplyTemperatureC", "indoorTemperatureC", "outdoorTemperatureC",
+  "supplyTemperatureC", "indoorTemperatureC", "outdoorTemperatureC", "month",
 ];
 const PARAMETER_FIELDS: Array<keyof SimulationParameters> = [
   "returnDropK", "activeFloorFraction", "referenceHeatFluxWPerM2",
   "referenceIndoorTemperatureC", "emissionExponent", "maxFloorSurfaceTemperatureC",
   "sunnyDirectNormalWPerM2", "sunnyDiffuseWPerM2", "cloudyDiffuseWPerM2",
-  "sunElevationDeg", "sunAzimuthDeg", "groundReflectance",
+  "groundReflectance",
 ];
 const SOLAR_FACTOR_FIELDS: Array<keyof SolarFactors> = [
   "glazing_fraction", "g_value", "shading_factor", "sun_protection_factor", "incidence_factor",
@@ -99,12 +118,16 @@ const SOLAR_FACTOR_FIELDS: Array<keyof SolarFactors> = [
 const FACADES: ReadonlyArray<readonly [FacadeOrientation, number]> = [["N", 0], ["E", 90], ["S", 180], ["W", 270]];
 const SURFACE_COEFFICIENT = 8.92;
 const SURFACE_EXPONENT = 1.1;
+const SOLAR_STEPS = 96;
+const REPRESENTATIVE_DAY = 15;
+const MONTH_DAY_OFFSETS = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334] as const;
+const REFERENCE_SINE_ELEVATION = Math.SQRT1_2;
 
 /** Only the initial supply temperature comes from documented planning data. */
 export function defaultSimulationScenario(data: SimulationPlanningData): SimulationScenario {
   return {
     supplyTemperatureC: data.underfloor_heating.design_supply_temperature_c,
-    indoorTemperatureC: 22, outdoorTemperatureC: 5, weather: "sunny",
+    indoorTemperatureC: 22, outdoorTemperatureC: 5, weather: "sunny", month: 1,
   };
 }
 
@@ -115,18 +138,18 @@ export function defaultSimulationParameters(data: SimulationPlanningData): Simul
     activeFloorFraction: 0.8, referenceHeatFluxWPerM2: 50, referenceIndoorTemperatureC: 20,
     emissionExponent: 1.1, maxFloorSurfaceTemperatureC: 29, sunnyDirectNormalWPerM2: 700,
     sunnyDiffuseWPerM2: 100, cloudyDiffuseWPerM2: 150,
-    sunElevationDeg: 45, sunAzimuthDeg: 180, groundReflectance: 0.2,
+    groundReflectance: 0.2,
   };
 }
 
 const finiteNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
 const invalidResult = (errors: Iterable<string>): SimulationResult => ({
-  valid: false, errors: [...new Set(errors)], zones: [], totals: null, facadeIrradiance: null,
+  valid: false, errors: [...new Set(errors)], zones: [], totals: null, facadeIrradiance: null, solarProfile: null,
 });
 
 /** Validate both user assumptions and the supplied source data without changing either. */
 function validationErrors(
-  data: SimulationPlanningData, scenario: SimulationScenario, parameters: SimulationParameters,
+  data: SimulationPlanningData, scenario: SimulationScenario, parameters: SimulationParameters, site: SimulationSite,
 ): Set<string> {
   const errors = new Set<string>();
   for (const field of SCENARIO_NUMBER_FIELDS) {
@@ -134,6 +157,9 @@ function validationErrors(
     if (!finiteNumber(value) || value < min || value > max) errors.add(field);
   }
   if (scenario?.weather !== "sunny" && scenario?.weather !== "cloudy") errors.add("weather");
+  if (!Number.isInteger(scenario?.month)) errors.add("month");
+  const latitude = site?.latitudeDeg, [minLatitude, maxLatitude] = SIMULATION_RANGES.latitudeDeg;
+  if (!finiteNumber(latitude) || latitude < minLatitude || latitude > maxLatitude) errors.add("latitudeDeg");
   for (const field of PARAMETER_FIELDS) {
     const value = parameters?.[field], [min, max] = SIMULATION_RANGES[field];
     if (!finiteNumber(value) || value < min || value > max) errors.add(field);
@@ -192,19 +218,47 @@ function validationErrors(
   return errors;
 }
 
-/** Isotropic sky and ground reflection for the selected synthetic weather scenario. */
-function scenarioFacades(
-  scenario: SimulationScenario, parameters: SimulationParameters,
-): Record<FacadeOrientation, number> {
-  const elevation = parameters.sunElevationDeg * Math.PI / 180;
-  const azimuth = parameters.sunAzimuthDeg * Math.PI / 180;
-  const dni = scenario.weather === "sunny" ? parameters.sunnyDirectNormalWPerM2 : 0;
-  const dhi = scenario.weather === "sunny" ? parameters.sunnyDiffuseWPerM2 : parameters.cloudyDiffuseWPerM2;
-  const ghi = dni * Math.sin(elevation) + dhi;
-  const diffuse = 0.5 * dhi + 0.5 * parameters.groundReflectance * ghi;
-  return Object.fromEntries(FACADES.map(([orientation, degrees]) => [orientation,
-    diffuse + (parameters.sunElevationDeg > 0 ? dni * Math.max(0, Math.cos(elevation) * Math.cos(azimuth - degrees * Math.PI / 180)) : 0),
-  ])) as Record<FacadeOrientation, number>;
+const zeroFacades = (): Record<FacadeOrientation, number> => ({ N: 0, E: 0, S: 0, W: 0 });
+
+/** NOAA declination approximation on the month's 15th, using a non-leap year. */
+function monthDeclination(month: number): number {
+  const day = MONTH_DAY_OFFSETS[month - 1] + REPRESENTATIVE_DAY;
+  const gamma = 2 * Math.PI / 365 * (day - 1);
+  return 0.006918 - 0.399912 * Math.cos(gamma) + 0.070257 * Math.sin(gamma)
+    - 0.006758 * Math.cos(2 * gamma) + 0.000907 * Math.sin(2 * gamma)
+    - 0.002697 * Math.cos(3 * gamma) + 0.00148 * Math.sin(3 * gamma);
+}
+
+/** A full solar-time day: longitude and clock offsets do not affect daily means. */
+function monthlySolarSteps(
+  scenario: SimulationScenario, parameters: SimulationParameters, site: SimulationSite,
+): { facades: Record<FacadeOrientation, number>[]; daylightHours: number } {
+  const declination = monthDeclination(scenario.month), latitude = site.latitudeDeg * Math.PI / 180;
+  const sinLatitude = Math.sin(latitude), cosLatitude = Math.cos(latitude);
+  const sinDeclination = Math.sin(declination), cosDeclination = Math.cos(declination);
+  const facades: Record<FacadeOrientation, number>[] = [];
+  let daylightHours = 0;
+  for (let step = 0; step < SOLAR_STEPS; step++) {
+    const hourAngle = 2 * Math.PI * ((step + 0.5) / SOLAR_STEPS - 0.5);
+    const sinElevation = Math.min(1, sinLatitude * sinDeclination + cosLatitude * cosDeclination * Math.cos(hourAngle));
+    if (sinElevation <= 0) {
+      facades.push(zeroFacades());
+      continue;
+    }
+    daylightHours += 24 / SOLAR_STEPS;
+    // Relative Haurwitz GHI shape; the DNI/DHI split remains an adjustable assumption.
+    const attenuation = Math.exp(-0.059 * (1 / sinElevation - 1 / REFERENCE_SINE_ELEVATION));
+    const dni = scenario.weather === "sunny" ? parameters.sunnyDirectNormalWPerM2 * attenuation : 0;
+    const referenceDhi = scenario.weather === "sunny" ? parameters.sunnyDiffuseWPerM2 : parameters.cloudyDiffuseWPerM2;
+    const dhi = referenceDhi * sinElevation / REFERENCE_SINE_ELEVATION * attenuation;
+    const ghi = dni * sinElevation + dhi;
+    const diffuse = 0.5 * dhi + 0.5 * parameters.groundReflectance * ghi;
+    const north = cosLatitude * sinDeclination - sinLatitude * cosDeclination * Math.cos(hourAngle);
+    const east = -cosDeclination * Math.sin(hourAngle);
+    facades.push({ N: diffuse + dni * Math.max(0, north), E: diffuse + dni * Math.max(0, east),
+      S: diffuse + dni * Math.max(0, -north), W: diffuse + dni * Math.max(0, -east) });
+  }
+  return { facades, daylightHours };
 }
 
 /** Mean heating-medium overtemperature, including the no-drop limit. */
@@ -251,40 +305,73 @@ function floorHeatFlux(
   return (low + high) / 2;
 }
 
-/** An adjustable steady-state approximation, using the same losses and solar model as live HA. */
+/** Daily means with unbuffered solar gains; floor emission remains a steady-state estimate. */
 export function simulateBuilding(
-  data: SimulationPlanningData, scenario: SimulationScenario, parameters: SimulationParameters,
+  data: SimulationPlanningData, scenario: SimulationScenario, parameters: SimulationParameters, site: SimulationSite,
 ): SimulationResult {
-  const errors = validationErrors(data, scenario, parameters);
+  const errors = validationErrors(data, scenario, parameters, site);
   if (errors.size > 0) return invalidResult(errors);
-  const facadeIrradiance = scenarioFacades(scenario, parameters);
+  const profile = monthlySolarSteps(scenario, parameters, site), facadeIrradiance = zeroFacades();
+  for (const sample of profile.facades) {
+    for (const [orientation] of FACADES) facadeIrradiance[orientation] += sample[orientation] / SOLAR_STEPS;
+  }
   const flux = floorHeatFlux(data, scenario, parameters);
   const returnTemperatureC = scenario.supplyTemperatureC - parameters.returnDropK * flux / parameters.referenceHeatFluxWPerM2;
   const floorSurfaceTemperatureC = scenario.indoorTemperatureC + Math.pow(flux / SURFACE_COEFFICIENT, 1 / SURFACE_EXPONENT);
   if (![...Object.values(facadeIrradiance), flux, returnTemperatureC, floorSurfaceTemperatureC].every(Number.isFinite)) return invalidResult(["calculation"]);
   const zones: ZoneSimulationResult[] = [];
-  const totals: SimulationTotals = { heatLossW: 0, solarGainsW: 0, heatDemandW: 0, heatingPowerW: 0, balanceW: 0 };
+  const totals: SimulationTotals = { heatLossW: 0, solarGainsW: 0, heatDemandW: 0, heatingPowerW: 0, balanceW: 0,
+    solarSurplusW: 0, peakHeatDemandW: 0, peakDeficitW: 0, peakSolarGainsW: 0 };
   data.zones.forEach((zone, index) => {
     const loss = heatLossW(zone, scenario.indoorTemperatureC, scenario.outdoorTemperatureC, data.building.design_outdoor_temperature_c);
-    const solar = solarGainsFromFacadesW(zone, facadeIrradiance, data.solar_assumptions);
     const activeFloorAreaM2 = zone.area * parameters.activeFloorFraction;
     const heatingPowerW = activeFloorAreaM2 * flux;
-    if (loss === null || solar === null || !Number.isFinite(activeFloorAreaM2) || !Number.isFinite(heatingPowerW)) {
+    if (loss === null || !Number.isFinite(activeFloorAreaM2) || !Number.isFinite(heatingPowerW)) {
       errors.add(`data.zones[${index}]`);
       return;
     }
-    const heatDemandW = Math.max(0, loss - solar), balanceW = heatingPowerW - heatDemandW;
-    if (!Number.isFinite(heatDemandW) || !Number.isFinite(balanceW)) {
-      errors.add(`data.zones[${index}]`);
-      return;
-    }
-    const result: ZoneSimulationResult = { id: zone.id, heatLossW: loss, solarGainsW: solar,
-      heatDemandW, heatingPowerW, balanceW, activeFloorAreaM2, floorSurfaceTemperatureC,
-      returnTemperatureC, heatFluxWPerM2: flux };
+    const result: ZoneSimulationResult = { id: zone.id, heatLossW: loss, solarGainsW: 0,
+      heatDemandW: 0, heatingPowerW, balanceW: 0, activeFloorAreaM2, floorSurfaceTemperatureC,
+      returnTemperatureC, heatFluxWPerM2: flux, solarSurplusW: 0,
+      peakHeatDemandW: 0, peakDeficitW: 0, peakSolarGainsW: 0 };
     zones.push(result);
-    for (const field of Object.keys(totals) as Array<keyof SimulationTotals>) totals[field] += result[field];
+    totals.heatLossW += loss;
+    totals.heatingPowerW += heatingPowerW;
   });
+  if (errors.size > 0) return invalidResult(errors);
+  for (const sample of profile.facades) {
+    let totalDemand = 0, totalSolar = 0;
+    data.zones.forEach((zone, index) => {
+      const result = zones[index], solar = solarGainsFromFacadesW(zone, sample, data.solar_assumptions);
+      if (solar === null) {
+        errors.add(`data.zones[${index}].solar_windows`);
+        return;
+      }
+      const demand = Math.max(0, result.heatLossW - solar), surplus = Math.max(0, solar - result.heatLossW);
+      result.solarGainsW += solar / SOLAR_STEPS;
+      result.heatDemandW += demand / SOLAR_STEPS;
+      result.solarSurplusW += surplus / SOLAR_STEPS;
+      result.peakHeatDemandW = Math.max(result.peakHeatDemandW, demand);
+      result.peakSolarGainsW = Math.max(result.peakSolarGainsW, solar);
+      totalDemand += demand;
+      totalSolar += solar;
+    });
+    if (!Number.isFinite(totalDemand) || !Number.isFinite(totalSolar)) errors.add("calculation");
+    totals.peakHeatDemandW = Math.max(totals.peakHeatDemandW, totalDemand);
+    totals.peakSolarGainsW = Math.max(totals.peakSolarGainsW, totalSolar);
+  }
+  for (const result of zones) {
+    result.balanceW = result.heatingPowerW - result.heatDemandW;
+    result.peakDeficitW = Math.max(0, result.peakHeatDemandW - result.heatingPowerW);
+    totals.solarGainsW += result.solarGainsW;
+    totals.heatDemandW += result.heatDemandW;
+    totals.solarSurplusW += result.solarSurplusW;
+    if (!Object.values(result).every(Number.isFinite)) errors.add("calculation");
+  }
+  totals.balanceW = totals.heatingPowerW - totals.heatDemandW;
+  totals.peakDeficitW = Math.max(0, totals.peakHeatDemandW - totals.heatingPowerW);
   if (!Object.values(totals).every(Number.isFinite)) errors.add("calculation");
   if (errors.size > 0) return invalidResult(errors);
-  return { valid: true, errors: [], zones, totals, facadeIrradiance };
+  return { valid: true, errors: [], zones, totals, facadeIrradiance,
+    solarProfile: { representativeDay: REPRESENTATIVE_DAY, daylightHours: profile.daylightHours, steps: SOLAR_STEPS } };
 }

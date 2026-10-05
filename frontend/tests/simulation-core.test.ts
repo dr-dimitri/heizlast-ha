@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { heatLossW, solarGainsFromFacadesW } from "../src/thermal-model";
 import {
   SIMULATION_RANGES, defaultSimulationParameters, defaultSimulationScenario, simulateBuilding,
-  type SimulationParameters, type SimulationPlanningData, type SimulationScenario,
+  type SimulationParameters, type SimulationPlanningData, type SimulationScenario, type SimulationSite,
 } from "../src/simulation-core";
 
 const lossZone = { load: 1000, temperature: 20 };
@@ -76,9 +76,9 @@ const sourceData = (): SimulationPlanningData => ({
 });
 const runSimulation = (
   scenarioChanges: Partial<SimulationScenario> = {}, parameterChanges: Partial<SimulationParameters> = {},
-  data = sourceData(),
+  data = sourceData(), site: SimulationSite = { latitudeDeg: 45 },
 ) => simulateBuilding(data, { ...defaultSimulationScenario(data), ...scenarioChanges },
-  { ...defaultSimulationParameters(data), ...parameterChanges });
+  { ...defaultSimulationParameters(data), ...parameterChanges }, site);
 
 describe("isolated floor-heating simulation", () => {
   it("imports and runs without DOM or Home Assistant", () => {
@@ -91,7 +91,7 @@ describe("isolated floor-heating simulation", () => {
 
   it("derives supply and return-drop defaults from source data while keeping assumptions adjustable", () => {
     const data = sourceData();
-    expect(defaultSimulationScenario(data)).toEqual({ supplyTemperatureC: 35, indoorTemperatureC: 22, outdoorTemperatureC: 5, weather: "sunny" });
+    expect(defaultSimulationScenario(data)).toEqual({ supplyTemperatureC: 35, indoorTemperatureC: 22, outdoorTemperatureC: 5, weather: "sunny", month: 1 });
     expect(defaultSimulationParameters(data).returnDropK).toBe(7);
     expect(defaultSimulationParameters(data).referenceHeatFluxWPerM2).toBe(50);
     data.underfloor_heating = { design_supply_temperature_c: 40, design_return_temperature_c: 30 };
@@ -211,29 +211,36 @@ describe("isolated floor-heating simulation", () => {
     expect(sunny.facadeIrradiance!.S).toBeGreaterThan(sunny.facadeIrradiance!.N);
     expect(sunny.zones[1].solarGainsW).toBeGreaterThan(sunny.zones[0].solarGainsW);
     expect(sunny.zones[1].solarGainsW).toBeGreaterThan(cloudy.zones[1].solarGainsW);
-    expect(cloudy.facadeIrradiance).toEqual({ N: 90, E: 90, S: 90, W: 90 });
+    expect(cloudy.facadeIrradiance!.N).toBeGreaterThan(0);
+    expect(cloudy.facadeIrradiance!.N).toBe(cloudy.facadeIrradiance!.S);
+    expect(cloudy.facadeIrradiance!.E).toBe(cloudy.facadeIrradiance!.W);
     expect(cloudy.zones[0].solarGainsW).toBe(cloudy.zones[1].solarGainsW);
     expect(sunny.zones[2].solarGainsW).toBe(0);
   });
 
-  it("rotates direct gains with sun azimuth and suppresses the direct component at the horizon", () => {
-    const east = runSimulation({}, { sunAzimuthDeg: 90, sunnyDiffuseWPerM2: 0, groundReflectance: 0 });
-    expect(east.facadeIrradiance!.E).toBeCloseTo(700 * Math.cos(Math.PI / 4), 10);
-    expect(east.facadeIrradiance!.W).toBe(0);
-    const horizon = runSimulation({}, { sunElevationDeg: 0 });
-    expect(horizon.facadeIrradiance).toEqual({ N: 60, E: 60, S: 60, W: 60 });
+  it("integrates both morning east and afternoon west sun without a permanent noon direction", () => {
+    const daily = runSimulation({}, { sunnyDiffuseWPerM2: 0, groundReflectance: 0 });
+    expect(daily.facadeIrradiance!.E).toBeGreaterThan(0);
+    expect(daily.facadeIrradiance!.E).toBeCloseTo(daily.facadeIrradiance!.W, 10);
+    expect(daily.facadeIrradiance!.N).toBe(0);
+    expect(daily.facadeIrradiance!.S).toBeGreaterThan(daily.facadeIrradiance!.E);
   });
 
-  it("caps demand at zero and calculates balance and totals from the room results", () => {
+  it("caps each interval's demand and keeps the night demand when daytime solar exceeds losses", () => {
     const result = runSimulation({ outdoorTemperatureC: 20 });
     const south = result.zones[1];
-    expect(south.solarGainsW).toBeGreaterThan(south.heatLossW);
-    expect(south.heatDemandW).toBe(0);
-    expect(south.balanceW).toBe(south.heatingPowerW);
-    for (const field of Object.keys(result.totals!) as Array<keyof NonNullable<typeof result.totals>>) {
+    expect(south.peakSolarGainsW).toBeGreaterThan(south.heatLossW);
+    expect(south.heatDemandW).toBeGreaterThan(0);
+    expect(south.heatDemandW).toBeLessThan(south.heatLossW);
+    expect(south.solarSurplusW).toBeGreaterThan(0);
+    expect(south.balanceW).toBe(south.heatingPowerW - south.heatDemandW);
+    const meanFields = ["heatLossW", "solarGainsW", "heatDemandW", "heatingPowerW", "balanceW", "solarSurplusW"] as const;
+    for (const field of meanFields) {
       expect(result.totals![field]).toBeCloseTo(result.zones.reduce((sum, zone) => sum + zone[field], 0), 10);
     }
     expect(result.totals!.balanceW).toBeCloseTo(result.totals!.heatingPowerW - result.totals!.heatDemandW, 10);
+    expect(result.totals!.peakHeatDemandW).toBe(result.totals!.heatLossW);
+    expect(result.totals!.peakDeficitW).toBe(Math.max(0, result.totals!.peakHeatDemandW - result.totals!.heatingPowerW));
   });
 
   it("caps floor emission using the surface-temperature limit", () => {
@@ -259,17 +266,19 @@ describe("isolated floor-heating simulation", () => {
   });
 
   it("rejects every out-of-range and nonfinite scenario or parameter field without partial results", () => {
-    const data = sourceData(), scenario = defaultSimulationScenario(data), parameters = defaultSimulationParameters(data);
+    const data = sourceData(), scenario = defaultSimulationScenario(data), parameters = defaultSimulationParameters(data), site = { latitudeDeg: 45 };
     for (const [field, [min, max]] of Object.entries(SIMULATION_RANGES)) {
       for (const invalid of [min - 1, max + 1, NaN, Infinity, -Infinity]) {
         const result = field in scenario
-          ? simulateBuilding(data, { ...scenario, [field]: invalid }, parameters)
-          : simulateBuilding(data, scenario, { ...parameters, [field]: invalid });
+          ? simulateBuilding(data, { ...scenario, [field]: invalid }, parameters, site)
+          : field === "latitudeDeg" ? simulateBuilding(data, scenario, parameters, { latitudeDeg: invalid })
+          : simulateBuilding(data, scenario, { ...parameters, [field]: invalid }, site);
         expect(result.valid, field).toBe(false);
         expect(result.errors, field).toContain(field);
         expect(result.zones, field).toEqual([]);
         expect(result.totals, field).toBeNull();
         expect(result.facadeIrradiance, field).toBeNull();
+        expect(result.solarProfile, field).toBeNull();
       }
     }
     expect(runSimulation({ weather: "rainy" as SimulationScenario["weather"] }).errors).toContain("weather");
@@ -303,25 +312,140 @@ describe("isolated floor-heating simulation", () => {
 
   it("uses source changes immediately and does not keep a copied planning dataset", () => {
     const data = sourceData(), scenario = defaultSimulationScenario(data), parameters = defaultSimulationParameters(data);
-    const initial = simulateBuilding(data, scenario, parameters);
+    const initial = simulateBuilding(data, scenario, parameters, { latitudeDeg: 45 });
     data.zones[0].load *= 2;
     data.zones[1].solar_windows = [{ orientation: "S", area_m2: 8 }];
     data.underfloor_heating.design_supply_temperature_c = 40;
-    const changed = simulateBuilding(data, scenario, parameters);
+    const changed = simulateBuilding(data, scenario, parameters, { latitudeDeg: 45 });
     expect(changed.zones[0].heatLossW).toBeCloseTo(initial.zones[0].heatLossW * 2, 10);
     expect(changed.zones[1].solarGainsW).toBeCloseTo(initial.zones[1].solarGainsW * 2, 10);
     expect(changed.totals!.heatingPowerW).toBeLessThan(initial.totals!.heatingPowerW);
   });
 
   it("keeps input data and assumptions unchanged and returns independent result objects", () => {
-    const data = sourceData(), scenario = defaultSimulationScenario(data), parameters = defaultSimulationParameters(data);
-    const before = JSON.stringify({ data, scenario, parameters });
-    const result = simulateBuilding(data, scenario, parameters);
-    expect(JSON.stringify({ data, scenario, parameters })).toBe(before);
+    const data = sourceData(), scenario = defaultSimulationScenario(data), parameters = defaultSimulationParameters(data), site = { latitudeDeg: 45 };
+    const before = JSON.stringify({ data, scenario, parameters, site });
+    const result = simulateBuilding(data, scenario, parameters, site);
+    expect(JSON.stringify({ data, scenario, parameters, site })).toBe(before);
     result.zones[0].heatingPowerW = 0;
     result.facadeIrradiance!.S = 0;
-    const again = simulateBuilding(data, scenario, parameters);
+    const again = simulateBuilding(data, scenario, parameters, site);
     expect(again.zones[0].heatingPowerW).toBeGreaterThan(0);
     expect(again.facadeIrradiance!.S).toBeGreaterThan(0);
+  });
+});
+
+describe("monthly solar-day model", () => {
+  it("uses the whole representative day with approximately astronomical winter and summer daylight", () => {
+    const winter = runSimulation({ month: 1 }), summer = runSimulation({ month: 6 });
+    expect(winter.solarProfile).toEqual({ representativeDay: 15, steps: 96, daylightHours: 9 });
+    expect(summer.solarProfile!.daylightHours).toBeCloseTo(15.5, 1);
+    const equatorWinter = runSimulation({ month: 1 }, {}, sourceData(), { latitudeDeg: 0 });
+    const equatorSummer = runSimulation({ month: 6 }, {}, sourceData(), { latitudeDeg: 0 });
+    expect(equatorWinter.solarProfile!.daylightHours).toBe(12);
+    expect(equatorSummer.solarProfile!.daylightHours).toBe(12);
+    expect(winter.zones[1].peakSolarGainsW).toBeGreaterThan(winter.zones[1].solarGainsW);
+    expect(summer.zones[1].heatDemandW).not.toBe(winter.zones[1].heatDemandW);
+    expect(summer.totals!.heatingPowerW).toBe(winter.totals!.heatingPowerW);
+  });
+
+  it("reverses seasons and winter-facing sunlight between northern and southern hemispheres", () => {
+    const northWinter = runSimulation({ month: 1 }, {}, sourceData(), { latitudeDeg: 45 });
+    const northSummer = runSimulation({ month: 6 }, {}, sourceData(), { latitudeDeg: 45 });
+    const southSummer = runSimulation({ month: 1 }, {}, sourceData(), { latitudeDeg: -45 });
+    const southWinter = runSimulation({ month: 6 }, {}, sourceData(), { latitudeDeg: -45 });
+    expect(northWinter.solarProfile!.daylightHours).toBeLessThan(northSummer.solarProfile!.daylightHours);
+    expect(southWinter.solarProfile!.daylightHours).toBeLessThan(southSummer.solarProfile!.daylightHours);
+    expect(northWinter.facadeIrradiance!.S).toBeGreaterThan(northWinter.facadeIrradiance!.N);
+    expect(southWinter.facadeIrradiance!.N).toBeGreaterThan(southWinter.facadeIrradiance!.S);
+  });
+
+  it("makes polar night entirely dark and polar day finite for both hemispheres", () => {
+    for (const latitudeDeg of [-90, 90]) {
+      const winterMonth = latitudeDeg > 0 ? 12 : 6, summerMonth = latitudeDeg > 0 ? 6 : 12;
+      const night = runSimulation({ month: winterMonth }, {}, sourceData(), { latitudeDeg });
+      const day = runSimulation({ month: summerMonth }, {}, sourceData(), { latitudeDeg });
+      expect(night.valid).toBe(true);
+      expect(night.solarProfile!.daylightHours).toBe(0);
+      expect(night.facadeIrradiance).toEqual({ N: 0, E: 0, S: 0, W: 0 });
+      expect(night.totals!.solarGainsW).toBe(0);
+      expect(night.totals!.solarSurplusW).toBe(0);
+      expect(night.totals!.heatDemandW).toBeCloseTo(night.totals!.heatLossW, 10);
+      expect(day.valid).toBe(true);
+      expect(day.solarProfile!.daylightHours).toBe(24);
+      for (const value of Object.values(day.facadeIrradiance!)) expect(Number.isFinite(value) && value > 0).toBe(true);
+    }
+  });
+
+  it("balances average losses, raw gains, unmet demand and unused midday excess without overnight storage", () => {
+    const result = runSimulation({ outdoorTemperatureC: 20 });
+    const nightFraction = 1 - result.solarProfile!.daylightHours / 24;
+    for (const room of result.zones) {
+      expect(room.heatLossW + room.solarSurplusW).toBeCloseTo(room.heatDemandW + room.solarGainsW, 10);
+      expect(room.heatDemandW).toBeGreaterThanOrEqual(room.heatLossW * nightFraction - 1e-10);
+      expect(room.peakHeatDemandW).toBe(room.heatLossW);
+      expect(room.peakDeficitW).toBe(Math.max(0, room.heatLossW - room.heatingPowerW));
+    }
+    const totals = result.totals!;
+    expect(totals.heatLossW + totals.solarSurplusW).toBeCloseTo(totals.heatDemandW + totals.solarGainsW, 10);
+    expect(result.zones[1].heatDemandW).toBeGreaterThan(Math.max(0, result.zones[1].heatLossW - result.zones[1].solarGainsW));
+  });
+
+  it("reports a night deficit even when the average balance is positive", () => {
+    const data = sourceData();
+    data.zones = [{ ...data.zones[1], solar_windows: [{ orientation: "S", area_m2: 40 }] }];
+    const result = runSimulation({ supplyTemperatureC: 28, outdoorTemperatureC: 10 }, {}, data);
+    const zone = result.zones[0];
+    expect(zone.balanceW).toBeGreaterThan(0);
+    expect(zone.peakDeficitW).toBeGreaterThan(0);
+    expect(result.totals!.peakDeficitW).toBe(zone.peakDeficitW);
+    expect(zone.solarSurplusW).toBeGreaterThan(0);
+  });
+
+  it("finds simultaneous building solar peaks rather than adding peaks reached by different facades", () => {
+    const data = sourceData();
+    data.zones = [
+      { ...data.zones[0], solar_windows: [{ orientation: "E", area_m2: 4 }] },
+      { ...data.zones[1], solar_windows: [{ orientation: "W", area_m2: 4 }] },
+    ];
+    const result = runSimulation({ month: 6 }, {}, data);
+    const separatePeaks = result.zones.reduce((sum, room) => sum + room.peakSolarGainsW, 0);
+    expect(result.totals!.peakSolarGainsW).toBeLessThan(separatePeaks);
+    expect(result.totals!.peakSolarGainsW).toBeGreaterThanOrEqual(Math.max(...result.zones.map((room) => room.peakSolarGainsW)));
+  });
+
+  it("retains only diffuse cloudy gains and honors adjustable reference intensities", () => {
+    const cloudy = runSimulation({ weather: "cloudy" });
+    expect(cloudy.facadeIrradiance!.N).toBe(cloudy.facadeIrradiance!.E);
+    expect(cloudy.facadeIrradiance!.S).toBe(cloudy.facadeIrradiance!.W);
+    const doubled = runSimulation({ weather: "cloudy" }, { cloudyDiffuseWPerM2: 300 });
+    expect(doubled.totals!.solarGainsW).toBeCloseTo(cloudy.totals!.solarGainsW * 2, 10);
+    const dark = runSimulation({}, { sunnyDirectNormalWPerM2: 0, sunnyDiffuseWPerM2: 0 });
+    expect(dark.totals!.solarGainsW).toBe(0);
+    expect(dark.totals!.heatDemandW).toBeCloseTo(dark.totals!.heatLossW, 10);
+  });
+
+  it("requires an explicit valid site and an integer month instead of inventing a location", () => {
+    for (const month of [0, 13, 1.5, NaN, Infinity]) {
+      const result = runSimulation({ month });
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain("month");
+    }
+    const data = sourceData(), scenario = defaultSimulationScenario(data), parameters = defaultSimulationParameters(data);
+    for (const site of [undefined, {}, { latitudeDeg: NaN }, { latitudeDeg: "45" }, { latitudeDeg: 91 }]) {
+      const result = simulateBuilding(data, scenario, parameters, site as SimulationSite);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain("latitudeDeg");
+      expect(result.solarProfile).toBeNull();
+    }
+    for (let month = 1; month <= 12; month++) expect(runSimulation({ month }).valid).toBe(true);
+  });
+
+  it("keeps runtime latitude out of planning input and result metadata", () => {
+    const data = sourceData(), before = JSON.stringify(data);
+    const result = runSimulation({}, {}, data, { latitudeDeg: 45 });
+    expect(JSON.stringify(data)).toBe(before);
+    expect(result.solarProfile).not.toHaveProperty("latitudeDeg");
+    expect(data).not.toHaveProperty("latitudeDeg");
   });
 });
