@@ -3,6 +3,33 @@ import { planningStyles } from "./planning-styles";
 import { planningData, floorLoad, floorName, polygonPoints, shapesForZone, zonesForFloor, type PlanningFloor, type PlanShape } from "./planning-types";
 import { bindingFor, clone, entityName, formatNumber, measuredTemperatureLabel, outdoorTemperatureLabel, roleSensor, solarRadiationLabel, temperatureSensors, type CardConfig, type HomeAssistant, type Project } from "./types";
 import { estimatedHeatLoadW, solarGainsW } from "./heat-load";
+import { defaultSimulationParameters, defaultSimulationScenario, SIMULATION_RANGES, simulateBuilding, type SimulationParameters, type SimulationResult, type SimulationScenario, type ZoneSimulationResult } from "./simulation-core";
+
+type ScenarioField = Exclude<keyof SimulationScenario, "weather">;
+type SimulationField = ScenarioField | keyof SimulationParameters;
+const initialScenario = defaultSimulationScenario(planningData);
+const initialParameters = defaultSimulationParameters(planningData);
+const scenarioFields: { key: ScenarioField; label: string; step: number }[] = [
+  { key: "supplyTemperatureC", label: "Vorlauf (°C)", step: 0.5 },
+  { key: "indoorTemperatureC", label: "Gewünschte Innentemperatur (°C)", step: 0.5 },
+  { key: "outdoorTemperatureC", label: "Außentemperatur (°C)", step: 0.5 },
+];
+const heatingFields: { key: keyof SimulationParameters; label: string; step: number }[] = [
+  { key: "returnDropK", label: "Spreizung am Referenzpunkt (K)", step: 0.5 },
+  { key: "activeFloorFraction", label: "Aktiver Flächenanteil (0–1)", step: 0.05 },
+  { key: "referenceHeatFluxWPerM2", label: "Referenzleistung (W/m²)", step: 1 },
+  { key: "referenceIndoorTemperatureC", label: "Referenz-Innentemperatur (°C)", step: 0.5 },
+  { key: "emissionExponent", label: "Kennlinienexponent", step: 0.05 },
+  { key: "maxFloorSurfaceTemperatureC", label: "Maximale Bodenoberfläche (°C)", step: 0.5 },
+];
+const weatherFields: typeof heatingFields = [
+  { key: "sunnyDirectNormalWPerM2", label: "Direktstrahlung sonnig (W/m²)", step: 10 },
+  { key: "sunnyDiffuseWPerM2", label: "Diffuse Strahlung sonnig (W/m²)", step: 10 },
+  { key: "cloudyDiffuseWPerM2", label: "Diffuse Strahlung bewölkt (W/m²)", step: 10 },
+  { key: "sunElevationDeg", label: "Sonnenhöhe (°)", step: 1 },
+  { key: "sunAzimuthDeg", label: "Sonnenazimut (° · 180 = Süd)", step: 1 },
+  { key: "groundReflectance", label: "Bodenreflexion (0–1)", step: 0.05 },
+];
 
 export class HeizlastGrundrissCard extends LitElement {
   static styles = planningStyles;
@@ -10,11 +37,17 @@ export class HeizlastGrundrissCard extends LitElement {
     hass: { attribute: false }, config: { state: true }, selectedFloor: { state: true }, selectedZone: { state: true },
     project: { state: true }, bindings: { state: true }, loading: { state: true }, busy: { state: true },
     error: { state: true }, conflict: { state: true }, notice: { state: true }, sensorSearch: { state: true },
+    selectedView: { state: true }, scenarioInputs: { state: true }, parameterInputs: { state: true }, weather: { state: true },
   };
   hass?: HomeAssistant;
   private config: CardConfig = { type: "custom:heizlast-grundriss-card" };
   private selectedFloor: PlanningFloor = "EG";
   private selectedZone = 5;
+  private selectedView: "live" | "simulation" = "live";
+  private scenarioInputs: Record<ScenarioField, string> = { supplyTemperatureC: String(initialScenario.supplyTemperatureC), indoorTemperatureC: String(initialScenario.indoorTemperatureC), outdoorTemperatureC: String(initialScenario.outdoorTemperatureC) };
+  private parameterInputs = Object.fromEntries(Object.entries(initialParameters).map(([key, value]) => [key, String(value)])) as Record<keyof SimulationParameters, string>;
+  private weather: SimulationScenario["weather"] = initialScenario.weather;
+  private simulationCache?: { scenario: Record<ScenarioField, string>; parameters: Record<keyof SimulationParameters, string>; weather: SimulationScenario["weather"]; result: SimulationResult };
   private project?: Project;
   private bindings: Record<string, string[]> = {};
   private loading = true;
@@ -49,8 +82,58 @@ export class HeizlastGrundrissCard extends LitElement {
   }
 
   private readingDescription(id: number): string {
+    if (this.selectedView === "simulation") {
+      const result = this.simulatedZone(id);
+      return `Wärmebedarf: ${this.watts(result?.heatDemandW)} / Mögliche FBH-Leistung: ${this.watts(result?.heatingPowerW)} / ${this.balanceDescription(result)} / Solare Gewinne: ${this.watts(result?.solarGainsW)}`;
+    }
     const values = this.readings(id);
     return `Aktuelle Temperatur: ${values.temperature} / Berechnete Heizlast: ${values.calculated} / Aktuelle Heizlast: ${values.current}`;
+  }
+
+  private get simulation(): SimulationResult {
+    if (this.simulationCache?.scenario === this.scenarioInputs && this.simulationCache.parameters === this.parameterInputs && this.simulationCache.weather === this.weather) return this.simulationCache.result;
+    const numeric = (value: string) => /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(value.trim()) ? Number(value) : NaN;
+    const scenario: SimulationScenario = { supplyTemperatureC: numeric(this.scenarioInputs.supplyTemperatureC), indoorTemperatureC: numeric(this.scenarioInputs.indoorTemperatureC), outdoorTemperatureC: numeric(this.scenarioInputs.outdoorTemperatureC), weather: this.weather };
+    const parameters = Object.fromEntries(Object.entries(this.parameterInputs).map(([key, value]) => [key, numeric(value)])) as unknown as SimulationParameters;
+    const result = simulateBuilding(planningData, scenario, parameters);
+    this.simulationCache = { scenario: this.scenarioInputs, parameters: this.parameterInputs, weather: this.weather, result };
+    return result;
+  }
+
+  private simulatedZone(id: number): ZoneSimulationResult | undefined { return this.simulation.zones.find((zone) => zone.id === id); }
+  private watts(value?: number): string { return value === undefined ? "?" : `≈ ${this.number(value, 0)} W`; }
+  private simulationClass(id: number): string {
+    if (this.selectedView !== "simulation") return "";
+    const result = this.simulatedZone(id);
+    return result ? result.balanceW < 0 ? "simulated-deficit" : "simulated-covered" : "simulated-invalid";
+  }
+  private balanceDescription(result?: ZoneSimulationResult): string { return result ? `${result.balanceW < 0 ? "Defizit" : "Leistungsreserve"}: ${this.watts(Math.abs(result.balanceW))}` : "Leistungsbilanz: ?"; }
+
+  private simulationInput(key: SimulationField, value: string): void {
+    if (Object.hasOwn(this.scenarioInputs, key)) this.scenarioInputs = { ...this.scenarioInputs, [key]: value };
+    else this.parameterInputs = { ...this.parameterInputs, [key]: value };
+  }
+
+  private renderSimulationInput(field: { key: SimulationField; label: string; step: number }) {
+    const value = Object.hasOwn(this.scenarioInputs, field.key) ? this.scenarioInputs[field.key as ScenarioField] : this.parameterInputs[field.key as keyof SimulationParameters];
+    const [min, max] = SIMULATION_RANGES[field.key];
+    return html`<label>${field.label}<input type="number" aria-label=${field.label} aria-invalid=${this.simulation.errors.includes(field.key)} min=${min} max=${max} step=${field.step} .value=${value} @input=${(event: Event) => this.simulationInput(field.key, (event.target as HTMLInputElement).value)}/></label>`;
+  }
+
+  private renderSimulationControls() {
+    const fields = [...scenarioFields, ...heatingFields, ...weatherFields];
+    return html`<section class="scenario" aria-label="Simulationsszenario"><h2>Szenario</h2><p class="hint">Stationärer Leistungsvergleich mit frei gewählten Temperaturen und Wetterannahmen. Alle Werte sind Näherungen für dieses Szenario.</p><div class="scenario-grid">${scenarioFields.map((field) => this.renderSimulationInput(field))}<label>Wetter<select aria-label="Wetter" .value=${this.weather} @change=${(event: Event) => this.weather = (event.target as HTMLSelectElement).value as SimulationScenario["weather"]}><option value="sunny">Sonnig</option><option value="cloudy">Bewölkt</option></select></label></div><details class="scenario-assumptions"><summary>FBH-Annahmen einstellen</summary><p class="hint">Belegter EnEV-Planungsansatz: Vorlauf ${this.number(planningData.underfloor_heating.design_supply_temperature_c, 0)} °C / Rücklauf ${this.number(planningData.underfloor_heating.design_return_temperature_c, 0)} °C · ${planningData.sources.heating.document}, S. ${planningData.sources.heating.pages.join(" / ")}.</p><p class="hint">Einstellbare Modellannahmen: aktive Fläche, Referenzleistung und Raumtemperatur, Kennlinie und Oberflächengrenze. Startwerte: ${this.number(initialParameters.activeFloorFraction * 100, 0)} % aktive Fläche und ${this.number(initialParameters.referenceHeatFluxWPerM2, 0)} W/m² bei ${this.number(planningData.underfloor_heating.design_supply_temperature_c, 0)}/${this.number(planningData.underfloor_heating.design_return_temperature_c, 0)} °C und ${this.number(initialParameters.referenceIndoorTemperatureC, 0)} °C innen. Die Raumflächen stammen aus der Heizlastberechnung; die tatsächlichen Heizflächen und die raumbezogene FBH-Auslegung sind nicht belegt.</p><p class="hint">Die Spreizung gilt am Referenzpunkt; dessen Rücklauf muss über der Referenz-Innentemperatur liegen. Die logarithmische Wasserkennlinie setzt einen angenommenen konstanten spezifischen Durchfluss voraus.</p><div class="scenario-grid">${heatingFields.map((field) => this.renderSimulationInput(field))}</div></details><details class="scenario-assumptions"><summary>Wetterannahmen einstellen</summary><p class="hint">Frei gewählte Strahlung und Sonnenposition. Bewölkt setzt die Direktstrahlung auf 0. Die solaren Planungsfaktoren aus dem EnEV-Nachweis bleiben Grundlage.</p><div class="scenario-grid">${weatherFields.map((field) => this.renderSimulationInput(field))}</div></details>${!this.simulation.valid ? html`<div class="notice error scenario-errors" role="alert"><strong>Szenario unvollständig oder ungültig.</strong>${this.simulation.errors.map((key) => { const field = fields.find((field) => field.key === key); if (!field) return html`<p>${key === "weather" ? "Wetterzustand prüfen." : "Die Planungsdaten reichen für dieses Szenario nicht aus."}</p>`; const [min, max] = SIMULATION_RANGES[field.key]; return html`<p>${field.label} prüfen · zulässiger Bereich: ${this.number(min, 2)} bis ${this.number(max, 2)}.</p>`; })}${this.simulation.errors.some((key) => key === "returnDropK" || key === "referenceIndoorTemperatureC" || key === "referenceHeatFluxWPerM2") ? html`<p>Referenzleistung, Referenzspreizung und Referenz-Innentemperatur müssen zusammenpassen. Die Referenz-Bodenoberfläche darf nicht über der Heizmitteltemperatur liegen.</p><p>Der Referenzrücklauf muss über der Referenz-Innentemperatur liegen.</p>` : nothing}</div>` : nothing}</section>${this.renderSimulationMetrics()}`;
+  }
+
+  private renderSimulationMetrics() {
+    const zones = this.simulation.zones.filter((zone) => zonesForFloor(this.selectedFloor).some((planningZone) => planningZone.id === zone.id));
+    const total = (key: "heatDemandW" | "heatingPowerW" | "solarGainsW") => this.simulation.valid ? this.watts(zones.reduce((sum, zone) => sum + zone[key], 0)) : "?";
+    return html`<section class="metrics simulation-metrics" aria-label="Szenarioergebnisse"><div class="metric"><div class="metric-label">Wärmebedarf ${this.selectedFloor}</div><strong>${total("heatDemandW")}</strong><p>Szenario · nach solaren Gewinnen</p></div><div class="metric"><div class="metric-label">Mögliche FBH-Leistung ${this.selectedFloor}</div><strong>${total("heatingPowerW")}</strong><p>Leistung bei eingestellten Temperaturen</p></div><div class="metric"><div class="metric-label">Räume mit Defizit ${this.selectedFloor}</div><strong>${this.simulation.valid ? `${zones.filter((zone) => zone.balanceW < 0).length} / ${zones.length}` : "?"}</strong><p>Leistungsreserven werden je Raum betrachtet</p></div><div class="metric"><div class="metric-label">Solare Gewinne ${this.selectedFloor}</div><strong>${total("solarGainsW")}</strong><p>Szenario · nach EnEV-Annahmen</p></div></section>`;
+  }
+
+  private renderSimulationDetails() {
+    const result = this.simulatedZone(this.zone.id);
+    return html`<div class="detail-kicker"><span>${floorName(this.zone.floor)}</span><span>Simulation · Zone ${this.zone.id}</span></div><h2>${this.zone.name}</h2><div class="simulation-results"><div class="heat-value">${this.watts(result?.heatDemandW)}</div><p class="heat-caption">Wärmebedarf · Szenario</p><div class="loss"><span>Temperaturbezogene Verluste</span><b>${this.watts(result?.heatLossW)}</b></div><div class="loss"><span>Solare Gewinne</span><b>${this.watts(result?.solarGainsW)}</b></div><div class="loss"><span>Mögliche FBH-Leistung</span><b>${this.watts(result?.heatingPowerW)}</b></div><div class=${`simulation-balance ${result ? result.balanceW < 0 ? "deficit" : "covered" : ""}`} role="status">${this.balanceDescription(result)}${result ? html`<p>${result.balanceW < 0 ? "Die mögliche FBH-Leistung reicht unter diesen Annahmen nicht für den Wärmebedarf." : "Die mögliche FBH-Leistung deckt den Wärmebedarf; ein Überschuss ist eine Leistungsreserve."}</p>` : html`<p>Ein gültiges Szenario eingeben, um diesen Raum zu vergleichen.</p>`}</div><dl><div><dt>Planfläche des Raumes</dt><dd>${this.number(this.zone.area, 2)} m²</dd></div><div><dt>Angenommene aktive FBH-Fläche</dt><dd>${result ? `${this.number(result.activeFloorAreaM2, 2)} m²` : "?"}</dd></div><div><dt>Geschätzte Bodenoberfläche</dt><dd>${result ? `${this.number(result.floorSurfaceTemperatureC)} °C` : "?"}</dd></div><div><dt>Angenäherter Rücklauf</dt><dd>${result ? `${this.number(result.returnTemperatureC)} °C` : "?"}</dd></div><div><dt>Wärmestromdichte</dt><dd>${result ? `${this.number(result.heatFluxWPerM2)} W/m²` : "?"}</dd></div><div><dt>Gewählte Innentemperatur</dt><dd>${this.simulation.valid ? `${this.number(Number(this.scenarioInputs.indoorTemperatureC))} °C` : "?"}</dd></div></dl><p class="hint">Stationärer Leistungsvergleich je Raum. Eine Leistungsreserve in einem anderen Raum gleicht dieses Defizit nicht automatisch aus. Das Szenario verändert keine Sensorzuordnungen.</p><details><summary>Planungsdaten & Quellen</summary><div class="source"><p>Normheizlast: ${this.number(this.zone.load)} W · Auslegung innen ${this.number(this.zone.temperature, 0)} °C · Auslegung außen ${this.number(planningData.building.design_outdoor_temperature_c)} °C.</p><p>Heizlastberechnung · S. ${this.zone.page} / R${this.zone.id}. ${planningData.sources.plans[this.zone.floor].document} · S. ${planningData.sources.plans[this.zone.floor].page} / Blatt ${planningData.sources.plans[this.zone.floor].sheet}.</p><p>Fensterbauteilflächen: ${this.zone.solar_windows.length ? this.zone.solar_windows.map((window) => `${({ N: "Nord", E: "Ost", S: "Süd", W: "West" })[window.orientation]} ${this.number(window.area_m2, 3)} m²`).join("; ") : "Für diese Rechenzone sind keine Fensterbauteile zugeordnet."}</p><p>${planningData.sources.solar.document} · S. ${planningData.sources.solar.pages.join(" / ")} / Abschnitt ${planningData.sources.solar.section}. Verglasungs-, Verschattungs- und Einfallsfaktoren stammen aus demselben Planungsansatz.</p></div></details></div>`;
   }
 
   protected updated(changed: PropertyValues): void {
@@ -76,6 +159,13 @@ export class HeizlastGrundrissCard extends LitElement {
 
   private chooseZone(id: number): void { this.selectedZone = id; this.sensorSearch = ""; }
 
+  private viewKeydown(event: KeyboardEvent): void {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    this.selectedView = event.key === "Home" ? "live" : event.key === "End" ? "simulation" : this.selectedView === "live" ? "simulation" : "live";
+    void this.updateComplete.then(() => this.shadowRoot!.querySelector<HTMLButtonElement>(`#view-${this.selectedView}`)?.focus());
+  }
+
   private toggleSensor(id: string, checked: boolean): void {
     if (!this.admin || !this.project || this.busy || this.conflict) return;
     const key = String(this.selectedZone), current = bindingFor(this.bindings, key);
@@ -100,13 +190,16 @@ export class HeizlastGrundrissCard extends LitElement {
   protected render() {
     const floorZones = zonesForFloor(this.selectedFloor);
     return html`<article class="dashboard">
-      <header class="heading"><div><div class="eyebrow">Heizlast HA · Wohnhaus</div><h1>${this.config.title ?? "Heizlast im Grundriss"}</h1><p class="subtitle">Raum auswählen · Planungswerte prüfen · echte Sensoren zuordnen</p></div><span class="chip">Planungsdaten</span></header>
-      <section class="metrics" aria-label="Gebäude und Planung"><div class="metric"><div class="metric-label">Gebäudeheizlast</div><strong>${this.number(planningData.building.heat_load_w, 0)} <small>W</small></strong><p>Heizlastberechnung · S. ${planningData.sources.building.page} / ${planningData.sources.building.sheet}</p></div><div class="metric"><div class="metric-label">Summe der Raumheizlasten</div><strong>${this.number(planningData.room_heat_load_sum_w)} <small>W</small></strong><p>${planningData.zones.length} gemeinsame oder einzelne Rechenzonen</p></div><div class="metric"><div class="metric-label">Beheizte Nettofläche</div><strong>${this.number(planningData.building.heated_net_floor_area_m2)} <small>m²</small></strong><p>EG + OG · Flächen aus der Berechnung</p></div><div class="metric outdoor-temperature"><div class="metric-label">Außentemperatur</div><strong>${outdoorTemperatureLabel(this.hass)}</strong><p>Standort Home Assistant · <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a> · 30-Minuten-Abfrage</p></div><div class="metric solar-radiation"><div class="metric-label">Sonneneinstrahlung</div><strong>${solarRadiationLabel(this.hass)}</strong><p>Horizontale Globalstrahlung · Open-Meteo</p></div></section>
-      ${this.error ? html`<div class="notice error" role="alert">${this.error}${this.conflict || !this.project ? html`<br/><button ?disabled=${this.loading || this.busy} @click=${() => void this.loadProject()}>${this.conflict ? "Aktuelle Zuordnungen laden" : "Erneut laden"}</button>` : nothing}</div>` : nothing}
-      ${this.notice ? html`<div class="notice" role="status">${this.notice}</div>` : nothing}
-      <div class="toolbar"><nav class="floor-tabs" aria-label="Geschosse">${(["EG", "OG"] as PlanningFloor[]).map((floor) => html`<button aria-pressed=${this.selectedFloor === floor} @click=${() => this.chooseFloor(floor)}>${floorName(floor)}</button>`)}</nav><span class="floor-total">Summe Raumheizlasten ${this.selectedFloor}<strong>${this.number(floorLoad(this.selectedFloor))} W</strong></span></div>
-      <div class="workspace"><section><div class="map-card"><div class="plan-heading"><strong>${floorName(this.selectedFloor)}</strong><span>Raumkonturen aus ${planningData.sources.plans[this.selectedFloor].document}</span></div>${this.renderPlan()}<p class="readings-legend">Aktuelle Temperatur / berechnete Heizlast / aktuelle Heizlast · ? = Wert nicht verfügbar · ≈ = Schätzung aus Temperaturen und verfügbaren solaren Gewinnen</p><p class="readings-legend">Heizlasten gelten für die gesamte Rechenzone. Mehrere Temperatursensoren werden in den Raumdetails einzeln angezeigt; im Grundriss steht dann ?.</p><div class="legend"><span><i class="dot"></i>Raum anklicken</span><span><i class="dot selected"></i>Ausgewählte Rechenzone</span>${floorZones.some((zone) => zone.uncertain) ? html`<span><i class="dot uncertain"></i>? Zuordnung prüfen</span>` : nothing}</div></div><div class="zone-heading"><span>Rechenzonen · ${floorZones.length} im ${this.selectedFloor}</span><span>Normheizlast</span></div><nav class="zone-list" aria-label="Rechenzonen">${floorZones.map((zone) => html`<button class="zone-button" data-zone=${zone.id} aria-pressed=${zone.id === this.selectedZone} @click=${() => this.chooseZone(zone.id)}><span class="zone-number">${zone.id}</span>${zone.name}${zone.uncertain ? " ?" : ""}<span>${this.number(zone.load)} W</span></button>`)}</nav></section><aside class="details" aria-label="Details der Rechenzone">${this.renderDetails()}</aside></div>
+      <header class="heading"><div><div class="eyebrow">Heizlast HA · Wohnhaus</div><h1>${this.config.title ?? "Heizlast im Grundriss"}</h1><p class="subtitle">${this.selectedView === "live" ? "Raum auswählen · Planungswerte prüfen · echte Sensoren zuordnen" : "Szenario einstellen · Wärmebedarf und Fußbodenheizung vergleichen"}</p></div><span class="chip">${this.selectedView === "live" ? "Planungsdaten" : "Simulation · Näherung"}</span></header>
+      <div class="view-tabs" role="tablist" aria-label="Ansichten">${(["live", "simulation"] as const).map((view) => html`<button id=${`view-${view}`} role="tab" aria-selected=${this.selectedView === view} aria-controls="dashboard-view" tabindex=${this.selectedView === view ? 0 : -1} @click=${() => this.selectedView = view} @keydown=${(event: KeyboardEvent) => this.viewKeydown(event)}>${view === "live" ? "Live" : "Simulation"}</button>`)}</div>
+      <div id="dashboard-view" role="tabpanel" aria-labelledby=${`view-${this.selectedView}`}>
+      ${this.selectedView === "simulation" ? this.renderSimulationControls() : html`<section class="metrics" aria-label="Gebäude und Planung"><div class="metric"><div class="metric-label">Gebäudeheizlast</div><strong>${this.number(planningData.building.heat_load_w, 0)} <small>W</small></strong><p>Heizlastberechnung · S. ${planningData.sources.building.page} / ${planningData.sources.building.sheet}</p></div><div class="metric"><div class="metric-label">Summe der Raumheizlasten</div><strong>${this.number(planningData.room_heat_load_sum_w)} <small>W</small></strong><p>${planningData.zones.length} gemeinsame oder einzelne Rechenzonen</p></div><div class="metric"><div class="metric-label">Beheizte Nettofläche</div><strong>${this.number(planningData.building.heated_net_floor_area_m2)} <small>m²</small></strong><p>EG + OG · Flächen aus der Berechnung</p></div><div class="metric outdoor-temperature"><div class="metric-label">Außentemperatur</div><strong>${outdoorTemperatureLabel(this.hass)}</strong><p>Standort Home Assistant · <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a> · 30-Minuten-Abfrage</p></div><div class="metric solar-radiation"><div class="metric-label">Sonneneinstrahlung</div><strong>${solarRadiationLabel(this.hass)}</strong><p>Horizontale Globalstrahlung · Open-Meteo</p></div></section>`}
+      ${this.selectedView === "live" && this.error ? html`<div class="notice error" role="alert">${this.error}${this.conflict || !this.project ? html`<br/><button ?disabled=${this.loading || this.busy} @click=${() => void this.loadProject()}>${this.conflict ? "Aktuelle Zuordnungen laden" : "Erneut laden"}</button>` : nothing}</div>` : nothing}
+      ${this.selectedView === "live" && this.notice ? html`<div class="notice" role="status">${this.notice}</div>` : nothing}
+      <div class="toolbar"><nav class="floor-tabs" aria-label="Geschosse">${(["EG", "OG"] as PlanningFloor[]).map((floor) => html`<button aria-pressed=${this.selectedFloor === floor} @click=${() => this.chooseFloor(floor)}>${floorName(floor)}</button>`)}</nav><span class="floor-total">Summe Normheizlasten ${this.selectedFloor}<strong>${this.number(floorLoad(this.selectedFloor))} W</strong></span></div>
+      <div class="workspace"><section><div class="map-card"><div class="plan-heading"><strong>${floorName(this.selectedFloor)}</strong><span>Raumkonturen aus ${planningData.sources.plans[this.selectedFloor].document}</span></div>${this.renderPlan()}${this.selectedView === "simulation" ? html`<p class="readings-legend">Wärmebedarf / mögliche FBH-Leistung / Bilanz (alle W) · + = Leistungsreserve · − = Defizit · ≈ = Näherung · ? = ungültiges Szenario</p><div class="legend"><span><i class="dot covered"></i>Bedarf gedeckt · Leistungsreserve</span><span><i class="dot deficit"></i>Defizit · zusätzliche Leistung nötig</span><span><i class="dot selected"></i>Ausgewählter Raum</span></div>` : html`<p class="readings-legend">Aktuelle Temperatur / berechnete Heizlast / aktuelle Heizlast · ? = Wert nicht verfügbar · ≈ = Schätzung aus Temperaturen und verfügbaren solaren Gewinnen</p><p class="readings-legend">Heizlasten gelten für die gesamte Rechenzone. Mehrere Temperatursensoren werden in den Raumdetails einzeln angezeigt; im Grundriss steht dann ?.</p><div class="legend"><span><i class="dot"></i>Raum anklicken</span><span><i class="dot selected"></i>Ausgewählte Rechenzone</span>${floorZones.some((zone) => zone.uncertain) ? html`<span><i class="dot uncertain"></i>? Zuordnung prüfen</span>` : nothing}</div>`}</div><div class="zone-heading"><span>Rechenzonen · ${floorZones.length} im ${this.selectedFloor}</span><span>${this.selectedView === "simulation" ? "Leistungsbilanz" : "Normheizlast"}</span></div><nav class="zone-list" aria-label="Rechenzonen">${floorZones.map((zone) => html`<button class="zone-button" data-zone=${zone.id} aria-label=${this.selectedView === "simulation" ? `${zone.name} auswählen · ${this.readingDescription(zone.id)}` : `${zone.name} auswählen`} aria-pressed=${zone.id === this.selectedZone} @click=${() => this.chooseZone(zone.id)}><span class="zone-number">${zone.id}</span>${zone.name}${zone.uncertain ? " ?" : ""}<span>${this.selectedView === "simulation" ? this.balanceDescription(this.simulatedZone(zone.id)) : `${this.number(zone.load)} W`}</span></button>`)}</nav></section><aside class="details" aria-label="Details der Rechenzone">${this.selectedView === "simulation" ? this.renderSimulationDetails() : this.renderDetails()}</aside></div>
       <footer class="footer"><span>${planningData.notes.geometry}</span><span>Heizlastberechnung · ${formatNumber(Number(planningData.calculation_date.slice(8, 10)), this.hass)}.${planningData.calculation_date.slice(5, 7)}.${planningData.calculation_date.slice(0, 4)}</span></footer>
+      </div>
     </article>`;
   }
 
@@ -115,14 +208,20 @@ export class HeizlastGrundrissCard extends LitElement {
     const [x0, y0, x1, y1] = planningData.floors[this.selectedFloor].bounds;
     const stairs = planningData.floors[this.selectedFloor].stairs;
     const [start, end] = [stairs[0], stairs[2]];
-    return html`<div class="plan"><svg viewBox=${`${x0} ${y0} ${x1 - x0} ${y1 - y0}`} role="group" aria-label=${`Grundriss ${floorName(this.selectedFloor)}`}><title>${floorName(this.selectedFloor)} · Raumkonturen und Rechenzonen</title>${shapes.filter((shape) => shape.poly).map((shape) => svg`<polygon class=${`room-shape ${shape.zone === this.selectedZone ? "selected" : ""} ${planningData.zones.find((zone) => zone.id === shape.zone)!.uncertain ? "uncertain" : ""}`} points=${polygonPoints(shape.poly!)} @click=${() => this.chooseZone(shape.zone)}><title>${shape.name} · Rechenzone ${shape.zone}</title></polygon>`)}<g aria-label="Treppe"><polygon class="stairs" points=${polygonPoints(stairs)}/>${Array.from({ length: 11 }, (_, i) => svg`<line class="stair-step" x1=${start[0] + (end[0] - start[0]) * (i + 1) / 12} x2=${start[0] + (end[0] - start[0]) * (i + 1) / 12} y1=${start[1]} y2=${end[1]}/>`)}<path class="stair-step" fill="none" d=${`M ${start[0] + 12} ${(start[1] + end[1]) / 2} H ${end[0] - 12} l -6 -4 m 6 4 l -6 4`}/></g>${shapes.map((shape) => this.renderLabel(shape))}</svg></div>`;
+    return html`<div class="plan"><svg viewBox=${`${x0} ${y0} ${x1 - x0} ${y1 - y0}`} role="group" aria-label=${`Grundriss ${floorName(this.selectedFloor)}`}><title>${floorName(this.selectedFloor)} · Raumkonturen und Rechenzonen</title>${shapes.filter((shape) => shape.poly).map((shape) => svg`<polygon class=${`room-shape ${this.simulationClass(shape.zone)} ${shape.zone === this.selectedZone ? "selected" : ""} ${planningData.zones.find((zone) => zone.id === shape.zone)!.uncertain ? "uncertain" : ""}`} points=${polygonPoints(shape.poly!)} @click=${() => this.chooseZone(shape.zone)}><title>${shape.name} · Rechenzone ${shape.zone}${this.selectedView === "simulation" ? ` · ${this.readingDescription(shape.zone)}` : ""}</title></polygon>`)}<g aria-label="Treppe"><polygon class="stairs" points=${polygonPoints(stairs)}/>${Array.from({ length: 11 }, (_, i) => svg`<line class="stair-step" x1=${start[0] + (end[0] - start[0]) * (i + 1) / 12} x2=${start[0] + (end[0] - start[0]) * (i + 1) / 12} y1=${start[1]} y2=${end[1]}/>`)}<path class="stair-step" fill="none" d=${`M ${start[0] + 12} ${(start[1] + end[1]) / 2} H ${end[0] - 12} l -6 -4 m 6 4 l -6 4`}/></g>${shapes.map((shape) => this.renderLabel(shape))}</svg></div>`;
   }
 
   private renderLabel(shape: PlanShape) {
     const zone = planningData.zones.find((zone) => zone.id === shape.zone)!;
     const [width, height] = shape.label_box;
-    const values = this.readings(zone.id);
-    const row = `${values.temperature} / ${values.calculated} / ${values.current}`;
+    let row: string;
+    if (this.selectedView === "simulation") {
+      const result = this.simulatedZone(zone.id);
+      row = result ? `≈ ${this.number(result.heatDemandW, 0)} / ${this.number(result.heatingPowerW, 0)} / ${result.balanceW < 0 ? "−" : "+"}${this.number(Math.abs(result.balanceW), 0)} W` : "? / ? / ?";
+    } else {
+      const values = this.readings(zone.id);
+      row = `${values.temperature} / ${values.calculated} / ${values.current}`;
+    }
     const name = `${shape.short}${zone.uncertain ? " ?" : ""}`;
     const description = this.readingDescription(zone.id);
     return svg`<foreignObject class="room-label-box" x=${shape.center[0] - width / 2} y=${shape.center[1] - height / 2} width=${width} height=${height}><button xmlns="http://www.w3.org/1999/xhtml" class=${`room-label ${shape.zone === this.selectedZone ? "selected" : ""} ${zone.uncertain ? "uncertain" : ""}`} data-shape=${shape.key} title=${`${shape.name} · ${description}`} aria-label=${`${shape.name} auswählen · Rechenzone ${zone.id}${zone.uncertain ? " · Zuordnung unsicher" : ""} · ${description}`} aria-pressed=${shape.zone === this.selectedZone} @click=${() => this.chooseZone(shape.zone)}><svg viewBox=${`0 0 ${width} ${height}`} aria-hidden="true"><text class="room-name" x=${width / 2} y="12" text-anchor="middle">${name}</text><text class="room-readings" x=${width / 2} y="25" text-anchor="middle">${row}</text></svg></button></foreignObject>`;

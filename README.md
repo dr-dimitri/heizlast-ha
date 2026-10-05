@@ -1,7 +1,7 @@
 # heizlast-ha
 
 Home-Assistant-Integration mit einer interaktiven digitalen Grundrisskarte.
-Version **0.12.0** öffnet den fest implementierten Grundriss direkt in der
+Version **0.13.0** öffnet den fest implementierten Grundriss direkt in der
 HA-Seitenleiste. Erdgeschoss und Obergeschoss zeigen die aus den Werkplänen
 übernommenen Raumkonturen und die belegten Normheizlasten von elf Rechenzonen.
 Räume lassen sich anklicken; rechts stehen Fläche, Auslegungstemperatur,
@@ -18,6 +18,10 @@ und den dokumentierten Auslegungswerten näherungsweise berechnet. Wenn aktuelle
 Strahlungsdaten vorliegen, werden solare Gewinne nach den belegten
 EnEV-Annahmen abgezogen. Das Ergebnis ist mit **≈** gekennzeichnet. Fehlende oder mehrdeutige Temperaturen ergeben **?**.
 Eine Heizungssteuerung ist nicht enthalten.
+
+Im zusätzlichen Tab **Simulation** lassen sich Vorlauf, gewünschte
+Innentemperatur, Außentemperatur und **sonnig/bewölkt** verändern. Live-Ansicht
+und Simulation verwenden denselben Grundriss und dieselben Planungsdaten.
 
 Die Außentemperatur wird über Open-Meteo mit dem in Home Assistant eingestellten
 Standort abgefragt: beim Laden der Integration und anschließend alle **30 Minuten**.
@@ -213,6 +217,104 @@ Personenangaben aus den Quelldokumenten, Ort, Postleitzahl, persönliche
 Originaldateinamen, Benutzerpfade und Original-PDFs werden nicht ausgeliefert.
 Ausdrücklich gewünschte Anzeigenamen werden ausschließlich als Raumlabel
 übernommen.
+
+## Simulation der Fußbodenheizung
+
+Dieser Abschnitt ist die zentrale fachliche Modellbeschreibung für Menschen
+und LLMs. `AGENTS.md` verweist verbindlich darauf. Belegte Zahlen und
+Quellen werden ausschließlich aus
+[`planning-data.json`](custom_components/heizlast_ha/planning-data.json)
+gelesen; die ausführbare Modellspezifikation liegt in
+[`simulation-core.ts`](frontend/src/simulation-core.ts) und
+[`thermal-model.ts`](frontend/src/thermal-model.ts). Bei Abweichungen die
+Dokumentation mit den maßgeblichen Quellen abgleichen, keine Datenkopie anlegen.
+
+Der Tab **Simulation** vergleicht den Wärmebedarf mit der möglichen
+Fußbodenheizungsleistung bei einem gemeinsamen Raumtemperaturziel. Vorlauf,
+Innentemperatur und Außentemperatur sind veränderbar; **sonnig** und
+**bewölkt** wählen zwei einstellbare Strahlungsszenarien. Erdgeschoss,
+Obergeschoss und anklickbare Räume verwenden denselben Planrenderer wie
+**Live**. Pro Raum erscheinen Wärmebedarf, mögliche FBH-Leistung und
+Leistungsreserve beziehungsweise Defizit. Die Details zeigen zusätzlich
+solare Gewinne, aktive Heizfläche und angenäherte Bodenoberflächentemperatur.
+Eine positive Gesamtbilanz kann Defizite einzelner Räume nicht ausgleichen.
+
+Die Berechnung verwendet die vorhandenen Normheizlasten,
+Auslegungstemperaturen, Raumflächen, Fensterflächen und EnEV-Solarfaktoren
+direkt aus **derselben `planning-data.json`**. Es gibt keinen zweiten
+Simulationsdatensatz. Der dort ergänzte EnEV-Planungsansatz **35/28 °C**
+für Vorlauf/Rücklauf ist auf Seiten 8 und 10 belegt und liefert die
+Starttemperatur und 7 K Spreizung. Er ist keine aktuelle Anlagenmessung.
+
+Unter **Modellannahmen** sind die nicht belegten Startannahmen einstellbar:
+80 % aktive Fußbodenfläche, 50 W/m² Referenzleistung bei zunächst
+35/28 °C und angenommenen 20 °C Raumtemperatur, Kennlinienexponent 1,1
+und 29 °C maximale Bodenoberfläche. Die Spreizung am Referenzpunkt ist
+ebenfalls einstellbar; ihre Änderung verändert den angenommenen
+Referenzrücklauf. Das Wassermodell verwendet die logarithmische
+Heizmittelübertemperatur. Die Referenzleistung wird mit dem Verhältnis
+dieser Übertemperatur zur Referenzübertemperatur potenziert.
+Aus Referenzleistung und Referenzspreizung wird ein konstanter spezifischer
+Durchfluss angenommen. Leistung und aktueller Rücklauf werden gemeinsam
+gelöst; bei niedrigerem Vorlauf wird keine unveränderte 7-K-Abkühlung
+bis unter die Raumtemperatur behauptet. Vorlauf auf oder unter dem
+Raumtemperaturziel ergibt keine Heizleistung.
+Die Leistung wird zusätzlich durch die Oberflächenkennlinie
+`q = 8,92 × max(0, Bodenoberfläche − Raumtemperatur)^1,1` begrenzt.
+Im positiven Heizbetrieb darf die berechnete Bodenoberfläche weder die
+eingestellte Grenze noch die logarithmische Heizmitteltemperatur überschreiten. Physikalisch
+unmögliche Referenzkombinationen liefern einen Eingabefehler.
+Diese Oberflächenbeziehung ist fachlich belegt;
+[Uponor erläutert die Basiskennlinie](https://www.uponor.com/de-de/unternehmen/presse/fachbeitraege/fa-uponor-klett-auslegung).
+Die logarithmische Übertemperatur und die üblichen Oberflächengrenzen
+werden in den [Uponor-Planungshinweisen, S. 23](https://brandportal.uponor.com/m/19769cf862d8a19a/original/Uponor-TI-planning-principles-UFHC-GER.pdf)
+erläutert. Die Wasserkennlinie, der Referenzwert, der aktive Flächenanteil
+und der spezifische Durchfluss sind ausdrücklich vereinfachende
+Modellannahmen. Rohrabstand, Bodenbelag,
+Wassermenge und eine herstellerspezifische Auslegung liegen nicht vor.
+
+Die Wetterszenarien starten mit 700 W/m² direkter Normalstrahlung und
+100 W/m² diffuser Strahlung bei **sonnig**, beziehungsweise ohne direkte
+Strahlung und mit 150 W/m² diffuser Strahlung bei **bewölkt**. Sonnenhöhe
+45°, Sonnenrichtung Süd (180°) und 20 % Bodenreflexion sind ebenfalls
+einstellbare Szenarioannahmen. Daraus wird die Einstrahlung auf N/O/S/W
+berechnet und mit den gemeinsamen Raumfensterflächen und Solarfaktoren
+verknüpft. Diese Szenarien benötigen keine aktuellen Wetterwerte oder
+Temperatursensoren. Simulationsergebnisse sind mit **≈** gekennzeichnet.
+
+Die Simulation ist ein stationärer Leistungsvergleich, keine Prognose
+der Aufheizdauer oder der tatsächlichen Raumtemperatur. Die dargestellte
+Leistungsreserve bezeichnet verfügbare Heizkapazität, keinen gemessenen
+Verbrauch. Thermostatregelung, Wärmespeicherung, interne Gewinne und
+wechselnde Lüftung sind nicht modelliert. Die Eingaben bleiben beim
+Tab- und Geschosswechsel erhalten und werden nicht in Home Assistant
+gespeichert. Sie sind auch für Benutzer mit Leserechten bedienbar und
+verändern weder Sensorwerte noch Sensorzuordnungen.
+
+### Rechenkern für weitere Simulationen
+
+`frontend/src/thermal-model.ts` enthält die gemeinsamen Verlust- und
+Solargewinnfunktionen für Live-Ansicht und Simulation.
+`frontend/src/simulation-core.ts` ergänzt Strahlungsszenarien und
+Fußbodenheizungsleistung. Beide Module sind reine TypeScript-Funktionen:
+kein DOM, keine Home-Assistant-Verbindung, kein Netzabruf und kein
+Import des projektspezifischen Datensatzes. Der Aufrufer übergibt die
+Planungsdaten und die Szenarioannahmen; die Funktionen verändern sie nicht.
+
+```ts
+import { planningData } from "./planning-types";
+import {
+  defaultSimulationScenario, defaultSimulationParameters, simulateBuilding,
+} from "./simulation-core";
+
+const scenario = defaultSimulationScenario(planningData);
+const parameters = defaultSimulationParameters(planningData);
+const result = simulateBuilding(planningData, scenario, parameters);
+```
+
+Das Ergebnis enthält Raumwerte und Summen. Ungültige Eingaben liefern
+Feldfehler und keine scheinbar gültigen Nullwerte. Andere Oberflächen
+können denselben Kern mit eigenen strukturell passenden Eingaben verwenden.
 
 ## Daten und Speicherung
 

@@ -14,6 +14,28 @@ DATA = (
 )
 
 
+def test_heating_design_temperatures_have_neutral_source_without_emitter_assumptions():
+    data = json.loads(DATA.read_text())
+    heating = data["underfloor_heating"]
+    assert heating == {
+        "design_supply_temperature_c": 35,
+        "design_return_temperature_c": 28,
+    }
+    assert data["sources"]["heating"] == {
+        "document": "EnEV-Nachweis",
+        "pages": [8, 10],
+    }
+    supply = heating["design_supply_temperature_c"]
+    return_temperature = heating["design_return_temperature_c"]
+    assert math.isfinite(supply) and math.isfinite(return_temperature)
+    assert supply - return_temperature == 7
+    assert (
+        supply > return_temperature > max(zone["temperature"] for zone in data["zones"])
+    )
+    # Active floor area and a room-specific emitter curve are not documented.
+    assert not any("underfloor_heating" in zone for zone in data["zones"])
+
+
 def test_documented_design_temperature_has_neutral_source_and_valid_zone_deltas():
     data = json.loads(DATA.read_text())
     outdoor_temperature = data["building"]["design_outdoor_temperature_c"]

@@ -2,13 +2,33 @@
 
 Diese Vorgaben gelten für das gesamte Repository.
 
+## Zentraler Modellkontext für LLMs
+
+- Vor Arbeiten an Berechnung, Simulation oder Grundriss die zentrale
+  [Modellbeschreibung in README.md](README.md#simulation-der-fußbodenheizung)
+  sowie die Abschnitte zu Normheizlasten und Daten/Speicherung lesen.
+  Dort stehen Modellumfang, Annahmen, Grenzen und die Verwendung des Rechenkerns.
+- Belegte Gebäudewerte und Quellen ausschließlich aus
+  [planning-data.json](custom_components/heizlast_ha/planning-data.json) lesen.
+  Diese Datei ist die einzige maßgebliche Datenquelle für Live und Simulation.
+  Keine Tabelle mit Raumlasten, Fensterflächen oder Konturen in Dokumentation,
+  Modellkontext oder Simulationscode kopieren.
+- Die ausführbaren Modellannahmen und Berechnungen stehen in
+  [simulation-core.ts](frontend/src/simulation-core.ts) und
+  [thermal-model.ts](frontend/src/thermal-model.ts). Dokumentierte Startannahmen
+  müssen mit diesen Modulen übereinstimmen. Änderungen am Modell im selben
+  Änderungssatz in README.md und diesem Modellkontext nachführen; unbekannte
+  Anlagenwerte weiterhin als Annahmen kennzeichnen.
+
 ## Festgelegte Dashboard-Darstellung
 
 - Der ausgewählte Entwurf ist das **Grundrissmodell** mit getrennten Ansichten
   für Erdgeschoss und Obergeschoss sowie anklickbaren Räumen.
 - Es gibt ausschließlich diesen einen fest implementierten Grundriss. Keine
   Neuanlage, kein Import und keine Geometriebearbeitung für eigene Grundrisse
-  anbieten. Nur Sensorzuordnungen der elf festen Rechenzonen sind veränderbar.
+  anbieten. Am festen Plan sind nur Sensorzuordnungen der elf Rechenzonen
+  veränderbar. Der zusätzliche Simulationstab verändert ausschließlich
+  Szenarioeingaben und Modellannahmen, nicht den Planungsdatensatz.
 - Dargestellt wird ausschließlich das beheizte Wohnhaus. Spitzboden,
   Technikraum, Gerätelager und Garage bleiben außerhalb des Dashboards.
 
@@ -26,7 +46,7 @@ Diese Vorgaben gelten für das gesamte Repository.
 - Nur die für das Dashboard erforderlichen fachlichen Daten übernehmen:
   Geschosse, neutrale Raumbezeichnungen ohne Personenbezug, Raumkonturen,
   Flächen, belegte Heizlastwerte und die erforderlichen belegten Fenster-/
-  Solarfaktoren. Keine Messwerte erfinden. Für
+  Solarfaktoren sowie die belegten FBH-Auslegungstemperaturen. Keine Messwerte erfinden. Für
   nachvollziehbare Quellenbelege neutrale Dokumentkennungen wie
   `Plan EG`, `Plan OG`, `Heizlastberechnung` und `EnEV-Nachweis` mit Seiten- oder
   Blattnummern verwenden.
@@ -138,7 +158,7 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
 ### Versionierung und Paketinhalt
 
 - `VERSION` ist die zentrale Projektversion im Format `MAJOR.MINOR.PATCH`,
-  aktuell `0.12.0`. Für eine neue Implementierung die Version nach SemVer
+  aktuell `0.13.0`. Für eine neue Implementierung die Version nach SemVer
   erhöhen. Jeder Merge benötigt eine bisher unveröffentlichte Version für das
   verpflichtende HACS-Release; reine Dokumentationsänderungen erhöhen mindestens
   die Patch-Version. CI-Builds erhalten zusätzlich eine eindeutige Buildkennung.
@@ -214,7 +234,9 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   nicht wiederhergestellt.
   Koordinaten und Sonnenstand werden nicht in Entitätsattributen gespeichert.
 - Das Seitenleisten-Panel zeigt ausschließlich `heizlast-grundriss-card`
-  mit Erdgeschoss/Obergeschoss und elf festen Rechenzonen. Es enthält keine
+  mit den Tabs Live/Simulation, Erdgeschoss/Obergeschoss und elf festen
+  Rechenzonen. Beide Ansichten verwenden denselben Planrenderer und denselben
+  Planungsdatensatz. Es enthält keine
   Navigation zu eigenen Grundrissen, keinen Import, LLM-Prompt oder Editor.
   Die frühere Lovelace-Kennung `heizlast-ha-card` ist ein Alias für denselben
   festen Grundriss. Das Frontend bündelt keine Import-/Editor-Module oder
@@ -284,6 +306,15 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   Temperaturen ergeben `?`, fehlende Solarwerte die gekennzeichnete Basisrechnung.
   Die Raumlabels verwenden dieselbe Schriftfamilie und Namensgröße ohne
   raumweise Streckung; die Wertezeile hat die halbe Namensschriftgröße.
+  Der Simulationstab verwendet dieselben Labels und Konturen. Szenarioeingaben
+  für Vorlauf, gewünschte Innentemperatur, Außentemperatur und sonnig/bewölkt
+  sowie aufklappbare FBH-/Wetterannahmen sind auch mit Leserechten bedienbar.
+  Sie verändern keine Sensorzustände, Zuordnungen oder Planungsdaten und bleiben
+  beim Tab-/Geschosswechsel erhalten. Ungültige Eingaben liefern Feldfehler
+  und keine scheinbar gültigen Ergebnisse. Die Ansicht zeigt je Raum Bedarf,
+  mögliche Heizleistung, Defizit/Leistungsreserve, solare Gewinne, aktive
+  Heizfläche und Oberflächentemperatur; eine positive Gebäudebilanz darf
+  Raumdefizite nicht als ausgeglichen darstellen.
   Panel und alte Kartenkennung
   dürfen ausschließlich den festen Grundriss anzeigen und keine Möglichkeit
   zum Hinzufügen oder Importieren eines anderen Plans bieten.
@@ -301,6 +332,38 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
 
 ### Fester Grundriss und Quelldaten
 
+- `thermal-model.ts` enthält die gemeinsamen Verlust-/Solargewinnfunktionen
+  für Live-Ansicht und Simulation; `simulation-core.ts` ergänzt den stationären
+  Leistungsvergleich. Der Kern nimmt strukturelle Planungsdaten als Argument,
+  importiert weder JSON noch HA-/DOM-APIs, führt keine Netzabrufe aus und
+  verändert seine Eingaben nicht. `heat-load.ts` bleibt der HA-Einheitenadapter.
+  Es gibt ausschließlich die vorhandene `planning-data.json`; keine Kopie
+  von Raumdaten, Konturen, Lasten, Flächen, Fenstern oder Solarfaktoren für
+  die Simulation erzeugen. Unter `underfloor_heating` stehen nur belegte
+  35/28 °C aus EnEV-Nachweis, Seiten 8/10, mit neutralem Quellenbeleg.
+- Die FBH-Simulation ist eine einstellbare Näherung: logarithmische
+  Heizmittelübertemperatur, angenommen 50 W/m² bei zunächst 35/28 °C und
+  angenommenen 20 °C Raumtemperatur, 80 % aktive Bodenfläche, Exponent 1,1
+  und 29 °C maximale Bodenoberfläche. Die Oberfläche wird mit
+  q = 8,92 × positiver Oberflächenübertemperatur^1,1 begrenzt. Die
+  berechnete Oberfläche darf im positiven Heizbetrieb auch die logarithmische Heizmitteltemperatur
+  nicht überschreiten; physikalisch unmögliche Referenzpunkte liefern Fehler.
+  Die Übertragung des Exponenten auf die Wasserkennlinie ist eine vereinfachende
+  Annahme, keine belegte Herstellerkennlinie.
+  Aus Referenzleistung und einstellbarer Referenzspreizung wird ein konstanter
+  spezifischer Durchfluss angenommen; Leistung und aktueller Rücklauf werden
+  gemeinsam gelöst. Bei positivem Heizbetrieb bleibt der Rücklauf oberhalb
+  der Zieltemperatur, bei Vorlauf auf/unter Ziel wird keine Heizleistung
+  behauptet. Eine geänderte Referenzspreizung verändert den angenommenen
+  Referenzrücklauf; ihre Startwerte kommen aus den belegten Daten.
+  Sonnig/bewölkt verwenden
+  deklarierte einstellbare Strahlungs-/Sonnenstandsannahmen; alle dokumentierten
+  Fenster- und Solarfaktoren kommen direkt aus der gemeinsamen Datenquelle.
+  Keine Aufheizzeit, Raumtemperaturprognose oder reale Heizungssteuerung
+  behaupten. Modellannahmen nicht als Mess- oder belegte Planungsdaten ausgeben.
+  Tests prüfen Leistungs-/Temperaturabhängigkeit, Quelle und Immutabilität,
+  Oberflächenlimit, Solarorientierung, invalidierte Szenarien, isolierte
+  Kernnutzung sowie Tab-/Geschosswechsel und fehlende HA-Verbindung.
 - `planning-data.json` enthält den einzigen implementierten Grundriss.
   Vereinfachte Konturen sind keine Vermessung; Flächen und Lasten stammen
   ausschließlich aus den neutral belegten Quelldokumenten. Gemeinsame

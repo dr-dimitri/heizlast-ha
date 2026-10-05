@@ -6,6 +6,10 @@
     "heated_net_floor_area_m2": 184.1,
     "design_outdoor_temperature_c": -12.2
   },
+  "underfloor_heating": {
+    "design_supply_temperature_c": 35,
+    "design_return_temperature_c": 28
+  },
   "room_heat_load_sum_w": 7354.5,
   "zones": [
     {
@@ -923,6 +927,13 @@
         6
       ],
       "section": "5.3"
+    },
+    "heating": {
+      "document": "EnEV-Nachweis",
+      "pages": [
+        8,
+        10
+      ]
     }
   },
   "notes": {
