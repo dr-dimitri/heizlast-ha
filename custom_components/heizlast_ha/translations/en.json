@@ -32,6 +32,15 @@
     "sensor": {
       "outdoor_temperature": {
         "name": "Outdoor temperature"
+      },
+      "solar_radiation": {
+        "name": "Solar irradiance"
+      },
+      "direct_normal_irradiance": {
+        "name": "Direct normal irradiance"
+      },
+      "diffuse_radiation": {
+        "name": "Diffuse irradiance"
       }
     }
   }

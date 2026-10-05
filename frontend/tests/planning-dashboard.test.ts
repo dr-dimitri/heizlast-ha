@@ -4,6 +4,10 @@ import { planningData } from "../src/planning-types";
 import { clone, type HassState, type HomeAssistant, type Project } from "../src/types";
 
 const sensor = (id: string, value = "20.7", deviceClass = "temperature"): HassState => ({ entity_id: id, state: value, attributes: { device_class: deviceClass, unit_of_measurement: deviceClass === "temperature" ? "°C" : "%", friendly_name: "Raumsensor" } });
+const outsideSensor = (value = "-12.2", unit = "°C", id = "sensor.weather_actual"): HassState => ({ entity_id: id, state: value, attributes: { device_class: "temperature", unit_of_measurement: unit, heizlast_ha_role: "outdoor_temperature" } });
+const radiationSensor = (value = "500", id = "sensor.sunlight"): HassState => ({ entity_id: id, state: value, attributes: { device_class: "irradiance", unit_of_measurement: "W/m²", heizlast_ha_role: "solar_radiation" } });
+const facadeRadiationSensor = (north = 100, east = 100, south = 100, west = 100): HassState => ({ ...radiationSensor(), attributes: { ...radiationSensor().attributes, facade_north_w_m2: north, facade_east_w_m2: east, facade_south_w_m2: south, facade_west_w_m2: west } });
+const livingReadings = (card: HeizlastGrundrissCard) => card.shadowRoot!.querySelector('[data-shape="eg_wohnen"] .room-readings')!.textContent;
 const empty = (): Project => ({ revision: 4, planning_bindings: {} });
 const text = (card: HeizlastGrundrissCard) => card.shadowRoot!.textContent!;
 async function settle(card: HeizlastGrundrissCard) { await card.updateComplete; await new Promise((resolve) => setTimeout(resolve, 0)); await card.updateComplete; }
@@ -74,10 +78,142 @@ describe("documented floorplan dashboard", () => {
     card.hass = { ...hass, states: { "sensor.room": sensor("sensor.room", "22.4") } }; await settle(card);
     expect(card.shadowRoot!.querySelector('[data-shape="eg_wohnen"] .room-readings')!.textContent).toBe("22,4 °C / 2.432,3 W / ?");
   });
+  it("marks the current heating load as an estimate and reacts to both indoor and outdoor temperatures", async () => {
+    const snapshot = empty(); snapshot.planning_bindings = { "5": ["sensor.room"] };
+    const { card, hass, callWS } = await mount(snapshot, false, { "sensor.room": sensor("sensor.room", "22"), "sensor.weather_actual": outsideSensor() });
+    expect(livingReadings(card)).toBe("22 °C / 2.432,3 W / ≈ 2.432 W");
+    expect(card.shadowRoot!.querySelector('[data-shape="eg_wohnen"]')!.getAttribute("aria-label")).toContain("Aktuelle Heizlast: ≈ 2.432 W");
+    expect(card.shadowRoot!.querySelector(".current-heat-load")!.textContent).toContain("Aktuelle Heizlast: ≈ 2.432 W");
+    expect(text(card)).toContain("Schätzung aus Temperaturen und verfügbaren solaren Gewinnen");
+    expect(card.shadowRoot!.querySelector(".current-heat-load")!.textContent).toContain("ohne verfügbare Solarkorrektur");
+    card.hass = { ...hass, states: { "sensor.room": sensor("sensor.room", "22"), "sensor.weather_actual": outsideSensor("4.9") } }; await settle(card);
+    expect(livingReadings(card)).toBe("22 °C / 2.432,3 W / ≈ 1.216 W");
+    card.hass = { ...hass, states: { "sensor.room": sensor("sensor.room", "13.45"), "sensor.weather_actual": outsideSensor("4.9") } }; await settle(card);
+    expect(livingReadings(card)).toBe("13,5 °C / 2.432,3 W / ≈ 608 W");
+    card.hass = { ...hass, states: { "sensor.room": sensor("sensor.room", "22"), "sensor.weather_actual": outsideSensor("25") } }; await settle(card);
+    expect(livingReadings(card)).toBe("22 °C / 2.432,3 W / ≈ 0 W");
+    card.hass = { ...hass, states: { "sensor.room": sensor("sensor.room", "22"), "sensor.weather_actual": outsideSensor("-29.3") } }; await settle(card);
+    expect(livingReadings(card)).toBe("22 °C / 2.432,3 W / ≈ 3.648 W");
+    expect(callWS).toHaveBeenCalledTimes(1);
+  });
+  it("calculates mixed Fahrenheit and Kelvin readings while displaying each actual measurement unit", async () => {
+    const snapshot = empty(); snapshot.planning_bindings = { "5": ["sensor.room"] };
+    const room = sensor("sensor.room", "71.6"); room.attributes.unit_of_measurement = "°F";
+    const { card } = await mount(snapshot, false, { "sensor.room": room, "sensor.weather_actual": outsideSensor("260.95", "K") });
+    expect(livingReadings(card)).toBe("71,6 °F / 2.432,3 W / ≈ 2.432 W");
+    expect(card.shadowRoot!.querySelector(".outdoor-temperature strong")!.textContent).toBe("261 K");
+  });
+  it("waits for saved sensor bindings before estimating the current load", async () => {
+    const snapshot = empty(); snapshot.planning_bindings = { "5": ["sensor.room"] };
+    let resolveProject!: (project: Project) => void;
+    const pending = new Promise<Project>((resolve) => { resolveProject = resolve; });
+    const card = new HeizlastGrundrissCard();
+    card.hass = { user: { is_admin: false }, states: { "sensor.room": sensor("sensor.room", "22"), "sensor.weather_actual": outsideSensor() }, callWS: async <T>(): Promise<T> => await pending as T };
+    document.body.append(card); await settle(card);
+    expect(livingReadings(card)).toBe("? / 2.432,3 W / ?");
+    expect(text(card)).toContain("Sensorzuordnungen werden geladen");
+    resolveProject(snapshot); await settle(card);
+    expect(livingReadings(card)).toBe("22 °C / 2.432,3 W / ≈ 2.432 W");
+  });
+  it("requires exactly one available room reading and one unambiguous outdoor reading for an estimate", async () => {
+    const snapshot = empty(); snapshot.planning_bindings = { "5": ["sensor.room"] };
+    const { card, hass } = await mount(snapshot, false, { "sensor.room": sensor("sensor.room", "22"), "sensor.weather_actual": outsideSensor() });
+    expect(livingReadings(card)).toContain("≈ 2.432 W");
+    const scenarios: Record<string, HassState>[] = [
+      { "sensor.room": sensor("sensor.room", "22") },
+      { "sensor.room": sensor("sensor.room", "22"), "sensor.weather_actual": outsideSensor("unknown") },
+      { "sensor.room": sensor("sensor.room", "22"), "sensor.weather_actual": outsideSensor("-12.2", "%") },
+      { "sensor.room": sensor("sensor.room", "22"), "sensor.weather_actual": outsideSensor(), "sensor.second_outdoor": outsideSensor("-12.2", "°C", "sensor.second_outdoor") },
+      { "sensor.weather_actual": outsideSensor() },
+      { "sensor.room": sensor("sensor.room", "unavailable"), "sensor.weather_actual": outsideSensor() },
+      { "sensor.room": sensor("sensor.room", " "), "sensor.weather_actual": outsideSensor() },
+      { "sensor.room": sensor("sensor.room", "22", "humidity"), "sensor.weather_actual": outsideSensor() },
+    ];
+    for (const states of scenarios) {
+      card.hass = { ...hass, states }; await settle(card);
+      expect(livingReadings(card)!.split(" / ")[2]).toBe("?");
+      expect(card.shadowRoot!.querySelector(".current-heat-load")!.textContent).toContain("Aktuelle Heizlast: ?");
+    }
+  });
+  it("keeps the temperature estimate when sunlight is missing and displays sunlight without inventing solar gains", async () => {
+    const snapshot = empty(); snapshot.planning_bindings = { "5": ["sensor.room"] };
+    const states = { "sensor.room": sensor("sensor.room", "22"), "sensor.weather_actual": outsideSensor() };
+    const { card, hass } = await mount(snapshot, false, states);
+    expect(livingReadings(card)).toContain("≈ 2.432 W");
+    expect(card.shadowRoot!.querySelector(".solar-radiation strong")!.textContent).toBe("?");
+    expect(card.shadowRoot!.querySelector(".solar-gains")!.textContent).toContain("Solare Gewinne: ?");
+    card.hass = { ...hass, states: { ...states, "sensor.sunlight": radiationSensor("500") } }; await settle(card);
+    expect(card.shadowRoot!.querySelector(".solar-radiation strong")!.textContent).toBe("500 W/m²");
+    expect(livingReadings(card)).toContain("≈ 2.432 W");
+    card.hass = { ...hass, states: { ...states, "sensor.sunlight": radiationSensor("700") } }; await settle(card);
+    expect(card.shadowRoot!.querySelector(".solar-radiation strong")!.textContent).toBe("700 W/m²");
+    expect(livingReadings(card)).toContain("≈ 2.432 W");
+    const sunlightScenarios: Record<string, HassState>[] = [
+      { "sensor.sunlight": radiationSensor("unknown") },
+      { "sensor.sunlight": radiationSensor("-1") },
+      { "sensor.sunlight": radiationSensor(), "sensor.other_sunlight": radiationSensor("500", "sensor.other_sunlight") },
+    ];
+    for (const sunlightStates of sunlightScenarios) {
+      card.hass = { ...hass, states: { ...states, ...sunlightStates } }; await settle(card);
+      expect(card.shadowRoot!.querySelector(".solar-radiation strong")!.textContent).toBe("?");
+      expect(livingReadings(card)).toContain("≈ 2.432 W");
+    }
+  });
+  it("subtracts documented window gains from current losses and updates each facade's contribution", async () => {
+    const snapshot = empty(); snapshot.planning_bindings = { "5": ["sensor.room"] };
+    const states = { "sensor.room": sensor("sensor.room", "22"), "sensor.weather_actual": outsideSensor() };
+    const { card, hass } = await mount(snapshot, false, { ...states, "sensor.sunlight": facadeRadiationSensor() });
+    // Zone 5 has W 4.1408 m², S 14.9778 m² and E 3.31648 m² whole-window areas.
+    // Equal 100 W/m² facade irradiance yields 636.034518 W after the 0.2835 factor.
+    expect(livingReadings(card)).toBe("22 °C / 2.432,3 W / ≈ 1.796 W");
+    expect(card.shadowRoot!.querySelector(".solar-gains")!.textContent).toContain("Solare Gewinne: ≈ 636 W");
+    expect(card.shadowRoot!.querySelector(".current-heat-load")!.textContent).toContain("Näherung mit solaren Gewinnen nach EnEV-Annahmen");
+    card.hass = { ...hass, states: { ...states, "sensor.sunlight": facadeRadiationSensor(100, 200, 300, 400) } }; await settle(card);
+    // Orientation-specific irradiances yield 1931.473026 W solar gains, leaving 500.786974 W.
+    expect(livingReadings(card)).toBe("22 °C / 2.432,3 W / ≈ 501 W");
+    expect(card.shadowRoot!.querySelector(".solar-gains")!.textContent).toContain("Solare Gewinne: ≈ 1.931 W");
+    card.hass = { ...hass, states: { ...states, "sensor.sunlight": facadeRadiationSensor(500, 500, 500, 500) } }; await settle(card);
+    expect(livingReadings(card)).toBe("22 °C / 2.432,3 W / ≈ 0 W");
+    expect(card.shadowRoot!.querySelector(".solar-gains")!.textContent).toContain("Solare Gewinne: ≈ 3.180 W");
+    const darkness = facadeRadiationSensor(0, 0, 0, 0); darkness.state = "0";
+    card.hass = { ...hass, states: { ...states, "sensor.sunlight": darkness } }; await settle(card);
+    expect(livingReadings(card)).toBe("22 °C / 2.432,3 W / ≈ 2.432 W");
+    expect(card.shadowRoot!.querySelector(".solar-gains")!.textContent).toContain("Solare Gewinne: ≈ 0 W");
+    expect(card.shadowRoot!.querySelector(".current-heat-load")!.textContent).toContain("Näherung mit solaren Gewinnen nach EnEV-Annahmen");
+    card.hass = { ...hass, states: { "sensor.weather_actual": outsideSensor(), "sensor.sunlight": facadeRadiationSensor() } }; await settle(card);
+    expect(livingReadings(card)).toBe("? / 2.432,3 W / ?");
+    expect(card.shadowRoot!.querySelector(".solar-gains")!.textContent).toContain("Solare Gewinne: ≈ 636 W");
+  });
+  it("falls back to temperature-only losses when facade samples become missing, partial or ambiguous", async () => {
+    const snapshot = empty(); snapshot.planning_bindings = { "5": ["sensor.room"] };
+    const states = { "sensor.room": sensor("sensor.room", "22"), "sensor.weather_actual": outsideSensor() };
+    const { card, hass } = await mount(snapshot, false, { ...states, "sensor.sunlight": facadeRadiationSensor() });
+    expect(livingReadings(card)).toContain("≈ 1.796 W");
+    const partial = facadeRadiationSensor(); delete partial.attributes.facade_south_w_m2;
+    const solarScenarios: Record<string, HassState>[] = [
+      { "sensor.sunlight": radiationSensor() },
+      { "sensor.sunlight": partial },
+      { "sensor.sunlight": facadeRadiationSensor(), "sensor.second_sunlight": { ...facadeRadiationSensor(), entity_id: "sensor.second_sunlight" } },
+    ];
+    for (const sunlightStates of solarScenarios) {
+      card.hass = { ...hass, states: { ...states, ...sunlightStates } }; await settle(card);
+      expect(livingReadings(card)).toBe("22 °C / 2.432,3 W / ≈ 2.432 W");
+      expect(card.shadowRoot!.querySelector(".solar-gains")!.textContent).toContain("Solare Gewinne: ?");
+      expect(card.shadowRoot!.querySelector(".current-heat-load")!.textContent).toContain("ohne verfügbare Solarkorrektur");
+    }
+  });
+  it("keeps zero solar gains distinct from missing solar data for a zone without windows", async () => {
+    const snapshot = empty(); snapshot.planning_bindings = { "8": ["sensor.room"] };
+    const { card } = await mount(snapshot, false, { "sensor.room": sensor("sensor.room", "22"), "sensor.weather_actual": outsideSensor() });
+    button(card, "Obergeschoss").click(); await settle(card); await choose(card, "og-diele");
+    expect(card.shadowRoot!.querySelector('[data-shape="og-diele"] .room-readings')!.textContent).toBe("22 °C / 202,2 W / ≈ 202 W");
+    expect(card.shadowRoot!.querySelector(".solar-gains")!.textContent).toContain("Solare Gewinne: ≈ 0 W");
+    expect(card.shadowRoot!.querySelector(".solar-radiation strong")!.textContent).toBe("?");
+  });
   it("shows multiple real sensor values individually and keeps the shared room summary unknown", async () => {
     const snapshot = empty(); snapshot.planning_bindings = { "5": ["sensor.first", "sensor.second"] };
     const first = sensor("sensor.first", "20"), second = sensor("sensor.second", "71.6"); second.attributes.unit_of_measurement = "°F";
-    const { card } = await mount(snapshot, true, { "sensor.first": first, "sensor.second": second });
+    const { card } = await mount(snapshot, true, { "sensor.first": first, "sensor.second": second, "sensor.weather_actual": outsideSensor() });
     expect([...card.shadowRoot!.querySelectorAll(".sensor-reading strong")].map((reading) => reading.textContent)).toEqual(["20 °C", "71,6 °F"]);
     expect(card.shadowRoot!.querySelector('[data-shape="eg_wohnen"] .room-readings')!.textContent).toBe("? / 2.432,3 W / ?");
     expect(text(card)).not.toContain("Planungswerte und Messwerte werden getrennt angezeigt. Bei mehreren Sensoren wird keine gemeinsame Temperatur abgeleitet.");

@@ -11,6 +11,12 @@ export interface HassState {
     device_class?: string;
     unit_of_measurement?: string;
     heizlast_ha_role?: string;
+    valid_time?: string;
+    averaging_interval_seconds?: number;
+    facade_north_w_m2?: number;
+    facade_east_w_m2?: number;
+    facade_south_w_m2?: number;
+    facade_west_w_m2?: number;
   };
 }
 export interface HomeAssistant {
@@ -41,16 +47,47 @@ export function temperatureSensors(hass: HomeAssistant): HassState[] {
 /** Read one actual temperature, retaining its declared unit without averaging. */
 export function measuredTemperatureLabel(state?: HassState, hass?: HomeAssistant): string {
   if (!state || state.attributes.device_class !== "temperature" || !["°C", "°F", "K"].includes(state.attributes.unit_of_measurement ?? "")) return "?";
-  const valueText = state.state.trim();
-  if (!/^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(valueText)) return "?";
-  const value = Number(valueText);
-  if (!Number.isFinite(value)) return "?";
+  const value = numericStateValue(state);
+  if (value === null) return "?";
   return `${formatNumber(value, hass, { maximumFractionDigits: 1 })} ${state.attributes.unit_of_measurement}`;
 }
 
+function numericStateValue(state?: HassState): number | null {
+  if (!state) return null;
+  const text = state.state.trim();
+  if (!/^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(text)) return null;
+  const value = Number(text);
+  return Number.isFinite(value) ? value : null;
+}
+
+/** Convert a temperature sample for calculation, independently of display units. */
+export function temperatureCelsius(state?: HassState): number | null {
+  if (state?.attributes.device_class !== "temperature") return null;
+  const value = numericStateValue(state);
+  if (value === null) return null;
+  const unit = state.attributes.unit_of_measurement;
+  const celsius = unit === "°C" ? value : unit === "°F" ? (value - 32) * 5 / 9 : unit === "K" ? value - 273.15 : null;
+  return celsius !== null && Number.isFinite(celsius) && celsius >= -273.15 ? celsius : null;
+}
+
+export function roleSensor(hass: HomeAssistant | undefined, role: string): HassState | undefined {
+  const sensors = Object.values(hass?.states ?? {}).filter((state) => state.entity_id.startsWith("sensor.") && state.attributes.heizlast_ha_role === role);
+  return sensors.length === 1 ? sensors[0] : undefined;
+}
+
 export function outdoorTemperatureLabel(hass?: HomeAssistant): string {
-  const sensors = Object.values(hass?.states ?? {}).filter((state) => state.entity_id.startsWith("sensor.") && state.attributes.heizlast_ha_role === "outdoor_temperature");
-  return sensors.length === 1 ? measuredTemperatureLabel(sensors[0], hass) : "?";
+  return measuredTemperatureLabel(roleSensor(hass, "outdoor_temperature"), hass);
+}
+
+export function solarRadiationLabel(hass?: HomeAssistant): string {
+  const value = irradianceWPerM2(roleSensor(hass, "solar_radiation"));
+  return value !== null ? `${formatNumber(value, hass, { maximumFractionDigits: 0 })} W/m²` : "?";
+}
+
+export function irradianceWPerM2(state?: HassState): number | null {
+  if (state?.attributes.device_class !== "irradiance" || state.attributes.unit_of_measurement !== "W/m²") return null;
+  const value = numericStateValue(state);
+  return value !== null && value >= 0 ? value : null;
 }
 
 export function entityName(state?: HassState, hass?: HomeAssistant): string | undefined {

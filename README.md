@@ -1,7 +1,7 @@
 # heizlast-ha
 
 Home-Assistant-Integration mit einer interaktiven digitalen Grundrisskarte.
-Version **0.11.1** öffnet den fest implementierten Grundriss direkt in der
+Version **0.12.0** öffnet den fest implementierten Grundriss direkt in der
 HA-Seitenleiste. Erdgeschoss und Obergeschoss zeigen die aus den Werkplänen
 übernommenen Raumkonturen und die belegten Normheizlasten von elf Rechenzonen.
 Räume lassen sich anklicken; rechts stehen Fläche, Auslegungstemperatur,
@@ -11,11 +11,13 @@ Spitzboden und Nebengebäude gehören nicht zur Darstellung.
 Die Integration speichert die Sensorzuordnungen in Home Assistant.
 Raumtemperaturen kommen direkt von den vorhandenen Sensoren. Dokumentierte
 Normheizlasten sind Planungsdaten, keine aktuellen Messwerte. Ohne Sensorzuordnung
-werden keine Raumtemperaturen vorgetäuscht. Eine Berechnung des aktuellen
-Wärmebedarfs und eine Heizungssteuerung sind nicht enthalten. Jedes Raumlabel
-zeigt **aktuelle Temperatur / berechnete Heizlast / aktuelle Heizlast**.
-Fehlende Werte erscheinen als **?**; insbesondere bleibt die aktuelle Heizlast
-ohne Datenquelle unbekannt.
+werden keine Raumtemperaturen vorgetäuscht. Jedes Raumlabel zeigt
+**aktuelle Temperatur / berechnete Heizlast / aktuelle Heizlast**. Die aktuelle
+Heizlast wird aus einem eindeutig zugeordneten Raumfühler, der Außentemperatur
+und den dokumentierten Auslegungswerten näherungsweise berechnet. Wenn aktuelle
+Strahlungsdaten vorliegen, werden solare Gewinne nach den belegten
+EnEV-Annahmen abgezogen. Das Ergebnis ist mit **≈** gekennzeichnet. Fehlende oder mehrdeutige Temperaturen ergeben **?**.
+Eine Heizungssteuerung ist nicht enthalten.
 
 Die Außentemperatur wird über Open-Meteo mit dem in Home Assistant eingestellten
 Standort abgefragt: beim Laden der Integration und anschließend alle **30 Minuten**.
@@ -24,6 +26,21 @@ Bei Fehlern bleibt der letzte erfolgreiche Wert erhalten; nach weiteren
 Die Standortkoordinaten werden ausschließlich für diese HTTPS-Abfrage verwendet
 und nicht mit dem Dashboard ausgeliefert. Open-Meteo liefert Wettermodelldaten,
 keine lokale Sensormessung. Quelle: [Open-Meteo](https://open-meteo.com/).
+
+Derselbe Abruf liefert außerdem Globalstrahlung, direkte Normalstrahlung und
+diffuse Strahlung als Home-Assistant-Sensoren in **W/m²**. Das Dashboard zeigt
+die horizontale Globalstrahlung als **Sonneneinstrahlung**. Die einzelnen Felder
+werden unabhängig geprüft; ein fehlender Strahlungswert verhindert keine
+Temperaturaktualisierung. Nach Fehlern bleiben die jeweiligen letzten gültigen
+Werte erhalten, auch nach einem Neustart. Die Entitäten enthalten den
+Gültigkeitszeitpunkt und gegebenenfalls das Mittelungsintervall aus der
+API-Antwort. Die Globalstrahlungsentität liefert zusätzlich berechnete
+Einstrahlung auf die vier senkrechten Fassaden. Diese Attribute werden nur aus
+allen drei gültigen Strahlungsfeldern desselben Abrufs mit gültigem Zeitbezug
+berechnet; alte oder unvollständige Daten erhalten keine Solarkorrektur.
+Bei `current` bezieht sich Strahlung gewöhnlich auf die vorherigen
+15 Minuten, nicht auf den 30-Minuten-Abfragetakt.
+[API und Zeitbezug](https://open-meteo.com/en/docs).
 
 Die Integration stellt ausschließlich diesen EG-/OG-Grundriss bereit.
 Raumkonturen und Rechenzonen sind fest hinterlegt. Das Hinzufügen, Importieren
@@ -133,8 +150,10 @@ Wertezeile darunter ist halb so groß; Texte werden nicht raumweise gestreckt.
 - Die Gebäude-Normheizlast beträgt **5.989 W**, die Raumheizlastsumme
   **7.354,5 W**. Die Berechnung berücksichtigt Lüftungsverluste auf Gebäudeebene
   nur hälftig. Beide Werte werden entsprechend getrennt beschriftet.
-- Auslegungstemperaturen von 22 °C beziehungsweise 24 °C sind
-  Berechnungsannahmen. Aktuelle Raumtemperaturen stammen ausschließlich aus
+- Die belegte Norm-Außentemperatur beträgt **−12,2 °C**
+  (**Heizlastberechnung**, Seite 2 / G1). Auslegungstemperaturen innen von
+  22 °C beziehungsweise 24 °C sind Berechnungsannahmen. Aktuelle
+  Raumtemperaturen stammen ausschließlich aus
   tatsächlich zugeordneten Home-Assistant-Temperatursensoren.
 
 Administratoren können in der Raumauswahl vorhandene Temperatursensoren
@@ -149,7 +168,42 @@ Das kompakte Raumlabel zeigt die Temperatur eines eindeutig zugeordneten
 verfügbaren Sensors. Bei mehreren Sensoren steht dort **?**; die Einzelwerte
 bleiben in den Raumdetails sichtbar. Es werden keine Mittelwerte erzeugt.
 Die Außentemperatur erscheint zusätzlich im Dashboard und als Home-Assistant-
-Temperatursensor. Nach Abfragefehlern bleibt der letzte Wert verfügbar.
+Temperatursensor. Nach Abfragefehlern bleibt der letzte Wert verfügbar und
+wird auch für die Temperaturabschätzung verwendet.
+
+Die temperaturbasierte Schätzung verwendet
+`Normheizlast × max(0, Raumtemperatur − Außentemperatur) / (Auslegung innen − Auslegung außen)`.
+Temperaturen werden dazu aus °C, °F oder K in °C umgerechnet. Außenluft mit
+gleicher oder höherer Temperatur als der Raum ergibt 0 W; bei kälteren
+Bedingungen kann die Schätzung über der Normheizlast liegen.
+
+Solare Gewinne werden je Raum aus den zugeordneten Fensterbauteilflächen und
+aktueller Fassadeneinstrahlung berechnet. Der **EnEV-Nachweis, Abschnitt 5.3,
+Seiten 5–6**, belegt g-Wert **0,50**, Rahmenfaktor **0,70** (wirksamer Glasanteil),
+Verschattung **0,90**, Sonnenschutz **1,00** und Einfallsfaktor **0,90**.
+Das Produkt beträgt 0,2835. Die Fassadensummen aus der Heizlastberechnung
+stimmen innerhalb der Quellenrundung mit den EnEV-Werten überein:
+Süd 23,30 m², Ost 5,83 m², Nord 8,30 m², West 12,33 m².
+Die südlichen verglasten Außentüren von Wohnen/Essen sind darin enthalten;
+die Eingangstür ist keine Solarfläche. Die letzte westliche Fensterfläche
+von Wohnen/Essen wird aus dem Außenwandabzug und dem Summenabgleich zugeordnet.
+
+Die Fassadeneinstrahlung wird mit Sonnenstand am Mittelpunkt des API-Intervalls,
+direkter Normalstrahlung, diffuser Strahlung, isotropem Himmel und 20 %
+Bodenreflexion angenähert. Sie entspricht keiner lokalen Fassadenmessung.
+Die temperaturbasierte Heizlastschätzung wird um solare Gewinne reduziert, mindestens
+auf 0 W. Der aktuelle Rollladenstatus wird nicht erfasst; die dokumentierten
+Verschattungs- und Sonnenschutzfaktoren sind Planungsannahmen.
+
+Wenn Strahlungswerte, Zeitbezug oder Einheiten fehlen oder die API-Zeit mehr als
+60 Minuten zurückliegt, werden Fassadenattribute entfernt. Ein zusätzlicher
+Timer entfernt sie auch dann rechtzeitig, wenn sie vor der nächsten
+30-Minuten-Abfrage veralten. In diesem Fall
+zeigt das Dashboard die temperaturbasierte Näherung mit entsprechendem Hinweis.
+Die Roh-Strahlungswerte bleiben nach Fehlern sichtbar. Beim Neustart werden
+nur Rohwerte und ihre Zeitmetadaten wiederhergestellt, keine alte Solarkorrektur.
+Interne Gewinne, veränderte Nachbarraumtemperaturen, wechselnde Lüftung und
+Wärmespeicherung bleiben unberücksichtigt.
 
 Der mitgelieferte Datensatz
 [`planning-data.json`](custom_components/heizlast_ha/planning-data.json)

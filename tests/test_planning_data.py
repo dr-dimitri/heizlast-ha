@@ -1,6 +1,7 @@
 """Verify the traced plan's shared zones without deriving invented room areas."""
 
 import json
+import math
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,104 @@ DATA = (
     Path(__file__).resolve().parents[1]
     / "custom_components/heizlast_ha/planning-data.json"
 )
+
+
+def test_documented_design_temperature_has_neutral_source_and_valid_zone_deltas():
+    data = json.loads(DATA.read_text())
+    outdoor_temperature = data["building"]["design_outdoor_temperature_c"]
+    assert outdoor_temperature == -12.2
+    assert data["sources"]["climate"] == {
+        "document": "Heizlastberechnung",
+        "page": 2,
+        "sheet": "G1",
+    }
+    assert len(data["zones"]) == 11
+    for zone in data["zones"]:
+        design_delta = zone["temperature"] - outdoor_temperature
+        assert math.isfinite(design_delta) and design_delta > 0, zone["id"]
+    assert {zone["temperature"] - outdoor_temperature for zone in data["zones"]} == {
+        34.2,
+        36.2,
+    }
+
+
+def test_solar_factors_match_the_documented_transparent_component_calculation():
+    data = json.loads(DATA.read_text())
+    assumptions = data["solar_assumptions"]
+    expected = {
+        "glazing_fraction": 0.70,
+        "g_value": 0.50,
+        "shading_factor": 0.90,
+        "sun_protection_factor": 1.00,
+        "incidence_factor": 0.90,
+    }
+    assert {key: assumptions[key] for key in expected} == expected
+    assert all(math.isfinite(value) and 0 < value <= 1 for value in expected.values())
+    assert assumptions["window_tilt_deg"] == 90
+    assert data["sources"]["solar"] == {
+        "document": "EnEV-Nachweis",
+        "pages": [5, 6],
+        "section": "5.3",
+    }
+    # The source's south-facing example applies glass, shading and incidence once.
+    assert 23.30 * math.prod(expected.values()) == pytest.approx(6.61, abs=0.005)
+    assert "Bauteilflächen, keine Netto-Glasflächen" in data["notes"]["solar"]
+
+
+def test_zone_window_areas_match_both_documented_facade_totals_and_orientations():
+    data = json.loads(DATA.read_text())
+    areas = {}
+    for zone in data["zones"]:
+        windows = zone["solar_windows"]
+        assert len({window["orientation"] for window in windows}) == len(windows)
+        assert all(
+            window["orientation"] in {"N", "E", "S", "W"}
+            and math.isfinite(window["area_m2"])
+            and window["area_m2"] > 0
+            for window in windows
+        )
+        areas[zone["id"]] = {
+            window["orientation"]: window["area_m2"] for window in windows
+        }
+    assert areas == {
+        1: {"N": 0.8626},
+        2: {"N": 1.50388},
+        3: {"N": 0.8626},
+        4: {"N": 2.706975},
+        5: {"W": 4.1408, "S": 14.9778, "E": 3.31648},
+        6: {"N": 0.8626, "W": 4.092},
+        7: {"N": 1.50388, "E": 1.007},
+        8: {},
+        9: {"W": 4.092, "S": 2.332},
+        10: {"S": 3.657},
+        11: {"S": 2.332, "E": 1.50388},
+    }
+    documented = data["solar_assumptions"]["facade_areas_m2"]
+    assert documented == {"N": 8.30, "E": 5.83, "S": 23.30, "W": 12.33}
+    for orientation, expected in documented.items():
+        assert sum(
+            area.get(orientation, 0) for area in areas.values()
+        ) == pytest.approx(expected, abs=0.02)
+    assert sum(sum(area.values()) for area in areas.values()) == pytest.approx(49.7535)
+    assert sum(documented.values()) == pytest.approx(49.76)
+
+
+def test_transparent_door_inclusion_and_derived_west_window_are_explicit():
+    data = json.loads(DATA.read_text())
+    zone = next(zone for zone in data["zones"] if zone["id"] == 5)
+    areas = {
+        window["orientation"]: window["area_m2"] for window in zone["solar_windows"]
+    }
+    assert areas["W"] == pytest.approx(0.76 * 2.38 + 1.76 * 1.325)
+    assert areas["S"] == pytest.approx(2.76 * 2.385 + 2 * 1.76 * 2.385)
+    # The source rounds the eastern wall's deduction to five decimal places.
+    assert areas["E"] == pytest.approx(0.76 * 2.385 + 1.135 * 1.325, abs=0.00001)
+    # The separately listed entrance door is excluded from zone 4's glazing.
+    assert next(zone for zone in data["zones"] if zone["id"] == 4)["solar_windows"] == [
+        {"orientation": "N", "area_m2": 2.706975}
+    ]
+    assert "keine eigene Orientierungsangabe" in data["notes"]["solar"]
+    assert "West ist aus der Abzugsfläche" in data["notes"]["solar"]
 
 
 def test_documented_floor_totals_and_shared_zone_areas():

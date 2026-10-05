@@ -25,9 +25,10 @@ Diese Vorgaben gelten für das gesamte Repository.
   übernehmen. Neutrale Bezeichnungen und Platzhalter verwenden.
 - Nur die für das Dashboard erforderlichen fachlichen Daten übernehmen:
   Geschosse, neutrale Raumbezeichnungen ohne Personenbezug, Raumkonturen,
-  Flächen und belegte Heizlastwerte. Keine Messwerte erfinden. Für
+  Flächen, belegte Heizlastwerte und die erforderlichen belegten Fenster-/
+  Solarfaktoren. Keine Messwerte erfinden. Für
   nachvollziehbare Quellenbelege neutrale Dokumentkennungen wie
-  `Plan EG`, `Plan OG` und `Heizlastberechnung` mit Seiten- oder
+  `Plan EG`, `Plan OG`, `Heizlastberechnung` und `EnEV-Nachweis` mit Seiten- oder
   Blattnummern verwenden.
 - Original-PDFs, daraus erzeugte Planbilder und ungefilterte Text- oder
   OCR-Ausgaben ausschließlich lokal außerhalb des Repositorys aufbewahren.
@@ -137,7 +138,7 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
 ### Versionierung und Paketinhalt
 
 - `VERSION` ist die zentrale Projektversion im Format `MAJOR.MINOR.PATCH`,
-  aktuell `0.11.1`. Für eine neue Implementierung die Version nach SemVer
+  aktuell `0.12.0`. Für eine neue Implementierung die Version nach SemVer
   erhöhen. Jeder Merge benötigt eine bisher unveröffentlichte Version für das
   verpflichtende HACS-Release; reine Dokumentationsänderungen erhöhen mindestens
   die Patch-Version. CI-Builds erhalten zusätzlich eine eindeutige Buildkennung.
@@ -186,15 +187,32 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   Dateien ab. Der Datensatz enthält ausschließlich anonymisierte fachliche
   Planungswerte, Konturen und neutrale Quellenbelege; er wird in das
   Integrationsarchiv aufgenommen und vom Frontend im Kartenmodul gebündelt.
-- `sensor.py` ist eine verpflichtende Laufzeitdatei für die Außentemperatur;
+- `sensor.py` ist eine verpflichtende Laufzeitdatei für die Wetterwerte;
   Build und Releaseprüfung lehnen ein Paket ohne diese Datei ab. Die Integration
-  verwendet `cloud_polling`: Beim Laden und anschließend alle 30 Minuten wird
-  `current=temperature_2m` bei Open-Meteo über HTTPS abgefragt. Koordinaten kommen
+  verwendet `cloud_polling`: Beim Laden und anschließend alle 30 Minuten werden
+  in einem gemeinsamen Open-Meteo-HTTPS-Abruf die aktuellen Felder
+  `temperature_2m`, `shortwave_radiation`, `direct_normal_irradiance` und
+  `diffuse_radiation` abgefragt. Koordinaten kommen
   bei jeder Abfrage aus Home Assistants Standortkonfiguration und werden weder
   im Repository noch in Entitätsattributen oder Fehlermeldungen gespeichert.
-  Nach fehlgeschlagenen Abfragen bleibt der letzte erfolgreiche Wert bestehen;
-  der nächste Versuch erfolgt nach weiteren 30 Minuten. Ohne erfolgreichen
-  Abruf bleibt die Außentemperatur unbekannt. Entladen beendet den Abfragetimer.
+  Felder werden unabhängig geprüft und nach Fehlern bleiben die jeweiligen
+  letzten gültigen Werte bestehen; der nächste Versuch erfolgt nach weiteren
+  30 Minuten. Die vier Sensoren stellen Temperatur bzw. W/m², Gültigkeitszeit
+  und gegebenenfalls Mittelungsintervall bereit und stellen Werte nach einem
+  Neustart wieder her. Ohne erfolgreichen Abruf bleibt das jeweilige Feld
+  unbekannt. Entladen beendet Timer und laufende Anfrage. Die bestehende
+  Temperaturidentität und Sensorzuordnungen bleiben erhalten. Die
+  Globalstrahlungsentität berechnet vier numerische Fassadenattribute aus
+  kohärenten frischen DNI-/DHI-/GHI-Werten desselben Abrufs. Sonnenstand wird
+  mit Home Assistants vorhandener Astral-Abhängigkeit am Intervallmittelpunkt
+  bestimmt; das Modell nutzt isotropen Himmel und 20 % Bodenreflexion.
+  API-Zeit maximal 60 Minuten alt / 5 Minuten zukünftig und Intervall maximal
+  3600 Sekunden. Fehlerhafte oder unvollständige Angaben entfernen diese
+  Attribute. Ein zusätzlicher Verfallstimer entfernt Fassadenattribute genau
+  beim Erreichen der 60-Minuten-Grenze, ohne zusätzliche HTTP-Abfrage. Timer
+  werden beim Entladen beendet. Alte Fassadenattribute werden beim Neustart
+  nicht wiederhergestellt.
+  Koordinaten und Sonnenstand werden nicht in Entitätsattributen gespeichert.
 - Das Seitenleisten-Panel zeigt ausschließlich `heizlast-grundriss-card`
   mit Erdgeschoss/Obergeschoss und elf festen Rechenzonen. Es enthält keine
   Navigation zu eigenen Grundrissen, keinen Import, LLM-Prompt oder Editor.
@@ -213,7 +231,27 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   unverändert als ungenutzte Altdaten erhalten, werden aber nicht an das
   Dashboard geliefert. Die Integration schreibt keine neuen Benutzerpläne.
   Normheizlasten und Auslegungstemperaturen sind ausschließlich Planungsdaten;
-  aktuelle Werte werden nur aus Home Assistants Zustand gelesen.
+  aktuelle Temperatur-/Strahlungswerte werden aus Home Assistants Zustand
+  gelesen. Die aktuelle Heizlast ist ausdrücklich eine temperaturbasierte
+  Schätzung: Normheizlast × max(0, Raumtemperatur − Außentemperatur) /
+  (Auslegung innen − Auslegung außen), mit Umrechnung von °C/°F/K.
+  Der belegte Außen-Auslegungswert −12,2 °C stammt aus Heizlastberechnung,
+  Seite 2 / G1. Genau ein Raumfühler und ein rollenmarkierter Außensensor sind
+  erforderlich; fehlende/ungültige/mehrdeutige Werte ergeben ?, Ergebnisse ≈.
+  Verfügbare solare Gewinne werden mit belegten Raumfensterflächen und den
+  EnEV-Faktoren aus Abschnitt 5.3 / Seiten 5–6 abgezogen, mindestens bis 0 W:
+  g-Wert 0,50, Rahmenfaktor 0,70, Verschattung 0,90, Sonnenschutz 1,00 und
+  Einfallsfaktor 0,90. Die Raumsummen stimmen mit den vier EnEV-Fassadensummen
+  innerhalb der Quellenrundung überein. Die südlichen verglasten Außentüren
+  gehören zu Wohnen/Essen; die Eingangstür bleibt ausgeschlossen. Die letzte
+  westliche Wohnen/Essen-Fensterfläche wird mit Außenwandabzug und Summenabgleich
+  neutral belegt. Rohwerte bleiben bei Fehlern erhalten, Fassadenattribute
+  für die Solarkorrektur werden dann entfernt. Ohne aktuelle Solardaten wird
+  ausdrücklich die temperaturbasierte Schätzung angezeigt. Interne Gewinne,
+  wechselnde Lüftung, Nachbarraumtemperaturen, tatsächlicher Rollladenstatus
+  und Wärmespeicherung bleiben unberücksichtigt. Tests prüfen Normbedingungen,
+  Skalierung, Einheiten, solare Gewinne/Nullbedarf, ungültige Daten,
+  unabhängige Wetterfelder und einen gemeinsamen Abruf.
 - Das Projekt enthält die Integration `custom_components/heizlast_ha/` und
   die Dashboard-Karte unter `frontend/`. Hassfest und Frontend-Prüfungen sind
   für den vorhandenen Code verpflichtend. Das Archiv enthält die Integration
@@ -241,7 +279,9 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   aktuelle Temperatur / berechnete Heizlast / aktuelle Heizlast; fehlende Werte
   stehen als `?`. Mehrere Sensoren bleiben einzeln sichtbar; ohne eindeutigen
   Einzelwert wird keine Raumtemperatur für das kompakte Label abgeleitet.
-  Für die aktuelle Heizlast fehlt weiterhin eine Datenquelle; sie bleibt `?`.
+  Die aktuelle Heizlast wird temperaturbasiert und bei verfügbaren frischen
+  Wetterdaten mit solaren Gewinnen nach EnEV-Annahmen geschätzt; fehlende
+  Temperaturen ergeben `?`, fehlende Solarwerte die gekennzeichnete Basisrechnung.
   Die Raumlabels verwenden dieselbe Schriftfamilie und Namensgröße ohne
   raumweise Streckung; die Wertezeile hat die halbe Namensschriftgröße.
   Panel und alte Kartenkennung
