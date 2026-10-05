@@ -26,37 +26,92 @@ describe("documented floorplan dashboard", () => {
     expect(text(card)).toContain("5.989"); expect(text(card)).toContain("7.354,5"); expect(text(card)).toContain("184,1");
     expect(text(card)).toContain("Kein Sensor zugeordnet"); expect(text(card)).not.toContain("21,4");
     expect(text(card)).not.toContain("Spitzboden"); expect(text(card)).not.toContain("Garage");
-    expect(card.shadowRoot!.querySelectorAll(".floor-tabs button")).toHaveLength(2); expect(card.shadowRoot!.querySelectorAll(".room-label")).toHaveLength(8);
+    expect(card.shadowRoot!.querySelectorAll(".floor-tabs button")).toHaveLength(2); expect(card.shadowRoot!.querySelectorAll(".room-label")).toHaveLength(7);
     expect(card.shadowRoot!.querySelector(".plan svg")!.getAttribute("viewBox")).toBe("0 122 440 400");
     expect(text(card)).toContain("Auslegung innen"); expect(text(card)).toContain("Heizlastberechnung · S. 10 / R5");
   });
-  it("keeps living spaces and hall/garderobe as shared zones without invented contours or divided loads", async () => {
+  it("keeps living spaces shared and displays the merged Diele with its complete documented load", async () => {
     const { card } = await mount(); expect(card.shadowRoot!.querySelectorAll("polygon.room-shape")).toHaveLength(5);
     for (const shape of ["eg_wohnen", "eg_essen", "eg_kueche"]) {
       await choose(card, shape); expect(card.shadowRoot!.querySelector("aside h2")!.textContent).toBe("Wohnen/Essen/Küche");
       expect(card.shadowRoot!.querySelectorAll('.room-label[aria-pressed="true"]')).toHaveLength(3);
       expect(card.shadowRoot!.querySelector(".heat-value")!.textContent).toContain("2.432,3"); expect(text(card)).toContain("Gemeinsame Rechenzone für Wohnen + Essen + Küche");
     }
-    await choose(card, "eg_diele"); expect(card.shadowRoot!.querySelectorAll('.room-label[aria-pressed="true"]')).toHaveLength(2);
-    expect(card.shadowRoot!.querySelector("aside h2")!.textContent).toBe("Gard./Diele"); expect(card.shadowRoot!.querySelector(".heat-value")!.textContent).toContain("613,5");
+    await choose(card, "eg_diele"); expect(card.shadowRoot!.querySelectorAll('.room-label[aria-pressed="true"]')).toHaveLength(1);
+    expect(card.shadowRoot!.querySelector("aside h2")!.textContent).toBe("Diele"); expect(card.shadowRoot!.querySelector(".heat-value")!.textContent).toContain("613,5");
   });
-  it("selects both sleeping polygons and marks the unconfirmed Bad assignment", async () => {
+  it("selects one merged Schlafzimmer, confirmed Bad and the requested upper-floor room names", async () => {
     const { card } = await mount(); button(card, "Obergeschoss").click(); await settle(card);
-    expect(card.shadowRoot!.querySelectorAll(".room-label")).toHaveLength(7); await choose(card, "og-ankleide");
-    expect(card.shadowRoot!.querySelectorAll("polygon.room-shape.selected")).toHaveLength(2); expect(card.shadowRoot!.querySelector("aside h2")!.textContent).toBe("Schlafen/Ankleide");
-    expect(card.shadowRoot!.querySelector(".heat-value")!.textContent).toContain("917"); await choose(card, "og-sanitaer-unbenannt");
-    expect(card.shadowRoot!.querySelector(".note.warning")!.textContent).toContain("unbeschriftet"); expect(text(card)).toContain("12,74 m²"); expect(text(card)).toContain("Planfläche unbeschriftet");
-    expect(card.shadowRoot!.querySelector("aside h2")!.textContent).toContain("Bad ?"); expect(planningData.shapes.find((shape) => shape.zone === 7)!.area).toBeNull();
+    expect(card.shadowRoot!.querySelectorAll(".room-label")).toHaveLength(6); await choose(card, "og-schlafzimmer");
+    expect(card.shadowRoot!.querySelectorAll("polygon.room-shape.selected")).toHaveLength(1); expect(card.shadowRoot!.querySelector("aside h2")!.textContent).toBe("Schlafzimmer");
+    expect(card.shadowRoot!.querySelector(".heat-value")!.textContent).toContain("917"); await choose(card, "og-bad");
+    expect(card.shadowRoot!.querySelector(".note.warning")).toBeNull(); expect(text(card)).toContain("12,74 m²"); expect(text(card)).toContain("Planfläche unbeschriftet");
+    expect(card.shadowRoot!.querySelector("aside h2")!.textContent).toBe("Bad"); expect(planningData.shapes.find((shape) => shape.zone === 7)!.area).toBeNull();
+    await choose(card, "og-kind-i"); expect(card.shadowRoot!.querySelector("aside h2")!.textContent).toBe("Basti");
+    await choose(card, "og-kind-ii"); expect(card.shadowRoot!.querySelector("aside h2")!.textContent).toBe("Ostzimmer");
   });
   it("updates real readings and handles unknown, unavailable, removed and changed-class entities", async () => {
     const snapshot = empty(); snapshot.planning_bindings = { "5": ["sensor.room"] };
     const { card, hass } = await mount(snapshot, true, { "sensor.room": sensor("sensor.room") }); expect(card.shadowRoot!.querySelector(".sensor-reading strong")!.textContent).toBe("20,7 °C");
-    for (const [value, expected] of [["22.4", "22,4 °C"], ["unknown", "Wert unbekannt"], ["unavailable", "Nicht verfügbar"]]) {
+    for (const [value, expected] of [["22.4", "22,4 °C"], ["unknown", "?"], ["unavailable", "?"]]) {
       card.hass = { ...hass, states: { "sensor.room": sensor("sensor.room", value) } }; await settle(card); expect(card.shadowRoot!.querySelector(".sensor-reading strong")!.textContent).toBe(expected);
     }
     card.hass = { ...hass, states: { "sensor.room": sensor("sensor.room", "65", "humidity") } }; await settle(card);
-    expect(card.shadowRoot!.querySelector(".sensor-reading strong")!.textContent).toBe("Kein Temperatursensor mehr"); expect(text(card)).not.toContain("65 %");
-    card.hass = { ...hass, states: {} }; await settle(card); expect(card.shadowRoot!.querySelector(".sensor-reading strong")!.textContent).toBe("Entität entfernt");
+    expect(card.shadowRoot!.querySelector(".sensor-reading strong")!.textContent).toBe("?"); expect(text(card)).toContain("Geräteklasse geändert"); expect(text(card)).not.toContain("65 %");
+    card.hass = { ...hass, states: {} }; await settle(card); expect(card.shadowRoot!.querySelector(".sensor-reading strong")!.textContent).toBe("?"); expect(text(card)).toContain("entfernt");
+  });
+  it("shows all three requested values per room and updates labels from HA without inventing current heat loads", async () => {
+    const snapshot = empty(); snapshot.planning_bindings = { "5": ["sensor.room"] };
+    const { card, hass } = await mount(snapshot, true, { "sensor.room": sensor("sensor.room") });
+    for (const shape of ["eg_wohnen", "eg_essen", "eg_kueche"]) {
+      const label = card.shadowRoot!.querySelector<HTMLButtonElement>(`[data-shape="${shape}"]`)!;
+      expect(label.querySelector(".room-readings")!.textContent).toBe("20,7 °C / 2.432,3 W / ?");
+      expect(label.getAttribute("aria-label")).toContain("Aktuelle Temperatur: 20,7 °C / Berechnete Heizlast: 2.432,3 W / Aktuelle Heizlast: ?");
+      expect(label.title).toContain("Aktuelle Heizlast: ?");
+    }
+    expect(card.shadowRoot!.querySelector('[data-shape="eg_diele"] .room-readings')!.textContent).toBe("? / 613,5 W / ?");
+    expect(card.shadowRoot!.querySelector(".readings-legend")!.textContent).toContain("Aktuelle Temperatur / berechnete Heizlast / aktuelle Heizlast");
+    card.hass = { ...hass, states: { "sensor.room": sensor("sensor.room", "22.4") } }; await settle(card);
+    expect(card.shadowRoot!.querySelector('[data-shape="eg_essen"] .room-readings')!.textContent).toBe("22,4 °C / 2.432,3 W / ?");
+  });
+  it("shows multiple real sensor values individually and keeps the shared room summary unknown", async () => {
+    const snapshot = empty(); snapshot.planning_bindings = { "5": ["sensor.first", "sensor.second"] };
+    const first = sensor("sensor.first", "20"), second = sensor("sensor.second", "71.6"); second.attributes.unit_of_measurement = "°F";
+    const { card } = await mount(snapshot, true, { "sensor.first": first, "sensor.second": second });
+    expect([...card.shadowRoot!.querySelectorAll(".sensor-reading strong")].map((reading) => reading.textContent)).toEqual(["20 °C", "71,6 °F"]);
+    expect(card.shadowRoot!.querySelector('[data-shape="eg_wohnen"] .room-readings')!.textContent).toBe("? / 2.432,3 W / ?");
+    expect(text(card)).toContain("keine gemeinsame Temperatur abgeleitet");
+  });
+  it("fits complete label rows in fixed plan-coordinate boxes without viewport-dependent pixel sizes", async () => {
+    const snapshot = empty(); snapshot.planning_bindings = { "4": ["sensor.room"] };
+    const extreme = sensor("sensor.room", "123456789012345"); extreme.attributes.unit_of_measurement = "K";
+    const { card } = await mount(snapshot, true, { "sensor.room": extreme });
+    for (const floor of ["Erdgeschoss", "Obergeschoss"]) {
+      button(card, floor).click(); await settle(card);
+      for (const box of card.shadowRoot!.querySelectorAll("foreignObject.room-label-box")) {
+        const label = box.querySelector<HTMLButtonElement>("button")!;
+        const shape = planningData.shapes.find((shape) => shape.key === label.dataset.shape)!;
+        expect(Number(box.getAttribute("x"))).toBe(shape.center[0] - shape.label_box[0] / 2);
+        expect(Number(box.getAttribute("y"))).toBe(shape.center[1] - shape.label_box[1] / 2);
+        expect(Number(box.getAttribute("width"))).toBe(shape.label_box[0]); expect(Number(box.getAttribute("height"))).toBe(shape.label_box[1]);
+        expect(label.style.position).toBe("");
+        for (const row of label.querySelectorAll("text")) {
+          expect(Number(row.getAttribute("textLength"))).toBeLessThanOrEqual(shape.label_box[0] - 12);
+          expect(row.getAttribute("lengthAdjust")).toBe("spacingAndGlyphs");
+        }
+      }
+    }
+  });
+  it("finds the integration outdoor sensor by role, updates from HA and excludes it from room choices", async () => {
+    const outside = sensor("sensor.weather_actual", "8.2"); outside.attributes.heizlast_ha_role = "outdoor_temperature";
+    const { card, hass } = await mount(empty(), true, { "sensor.weather_actual": outside, "sensor.room": sensor("sensor.room") });
+    expect(card.shadowRoot!.querySelector(".outdoor-temperature strong")!.textContent).toBe("8,2 °C");
+    expect(card.shadowRoot!.querySelector('.outdoor-temperature a')!.getAttribute("href")).toBe("https://open-meteo.com/");
+    expect(card.shadowRoot!.querySelectorAll('input[type="checkbox"]')).toHaveLength(1);
+    card.hass = { ...hass, states: { "sensor.weather_actual": { ...outside, state: "9.4" } } }; await settle(card);
+    expect(card.shadowRoot!.querySelector(".outdoor-temperature strong")!.textContent).toBe("9,4 °C");
+    card.hass = { ...hass, states: {} }; await settle(card);
+    expect(card.shadowRoot!.querySelector(".outdoor-temperature strong")!.textContent).toBe("?");
   });
   it("persists real sensor assignments for fixed shared zones", async () => {
     const snapshot = empty();

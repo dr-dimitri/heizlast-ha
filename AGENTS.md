@@ -137,7 +137,7 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
 ### Versionierung und Paketinhalt
 
 - `VERSION` ist die zentrale Projektversion im Format `MAJOR.MINOR.PATCH`,
-  aktuell `0.10.0`. Für eine neue Implementierung die Version nach SemVer
+  aktuell `0.11.0`. Für eine neue Implementierung die Version nach SemVer
   erhöhen. Jeder Merge benötigt eine bisher unveröffentlichte Version für das
   verpflichtende HACS-Release; reine Dokumentationsänderungen erhöhen mindestens
   die Patch-Version. CI-Builds erhalten zusätzlich eine eindeutige Buildkennung.
@@ -186,6 +186,15 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   Dateien ab. Der Datensatz enthält ausschließlich anonymisierte fachliche
   Planungswerte, Konturen und neutrale Quellenbelege; er wird in das
   Integrationsarchiv aufgenommen und vom Frontend im Kartenmodul gebündelt.
+- `sensor.py` ist eine verpflichtende Laufzeitdatei für die Außentemperatur;
+  Build und Releaseprüfung lehnen ein Paket ohne diese Datei ab. Die Integration
+  verwendet `cloud_polling`: Beim Laden und anschließend alle 30 Minuten wird
+  `current=temperature_2m` bei Open-Meteo über HTTPS abgefragt. Koordinaten kommen
+  bei jeder Abfrage aus Home Assistants Standortkonfiguration und werden weder
+  im Repository noch in Entitätsattributen oder Fehlermeldungen gespeichert.
+  Nach fehlgeschlagenen Abfragen bleibt der letzte erfolgreiche Wert bestehen;
+  der nächste Versuch erfolgt nach weiteren 30 Minuten. Ohne erfolgreichen
+  Abruf bleibt die Außentemperatur unbekannt. Entladen beendet den Abfragetimer.
 - Das Seitenleisten-Panel zeigt ausschließlich `heizlast-grundriss-card`
   mit Erdgeschoss/Obergeschoss und elf festen Rechenzonen. Es enthält keine
   Navigation zu eigenen Grundrissen, keinen Import, LLM-Prompt oder Editor.
@@ -216,14 +225,24 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   Import-, Editor-, Prompt-, Raumteilungs- und Raumverbindungstests entfallen
   gemeinsam mit den entfernten Funktionen.
 - Fachliche Tests prüfen gemeinsame Rechenzonen, Flächen-/Lastsummen,
-  gültige Konturen, Bad-Zuordnung mit unbekannter Planfläche und den Ausschluss
+  gültige Konturen, bestätigte Bad-Zuordnung mit unbekannter Planfläche,
+  vollständig innerhalb der Räume liegende Beschriftungsfelder und den Ausschluss
   unbeheizter Gebäudeteile. Backendtests prüfen separate Sensorzuordnungen,
   Benutzerrechte, dauerhafte Speicherung, Wiederladen, Konflikte, Speicherfehler,
   nicht verfügbare Sensoren und den unveränderten Erhalt ungenutzter Altdaten.
   Die frühere Geometrie-Speicheranfrage muss als unbekannter Befehl scheitern.
-- Frontendtests prüfen Geschoss-/Raumauswahl, gemeinsame Lasten, Bad-Warnhinweis,
+- Außentemperaturtests prüfen den Home-Assistant-Standort mit neutralen
+  Testkoordinaten, den ersten Abruf, das 30-Minuten-Intervall, fehlerhafte
+  Antworten, Werterhalt, Wiederholung und Entladen. HTTP-Antworten werden in
+  sämtlichen Integrationstests lokal simuliert; reale Standortabfragen entfallen.
+- Frontendtests prüfen Geschoss-/Raumauswahl, gemeinsame Lasten, bestätigtes Bad,
   echte Sensorzustände, fehlende Messwerte, Lesezugriff, Speicherfehler,
-  Konfliktbehandlung und mobile Navigation. Panel und alte Kartenkennung
+  Konfliktbehandlung, Außentemperatur und mobile Navigation. Raumlabels zeigen
+  aktuelle Temperatur / berechnete Heizlast / aktuelle Heizlast; fehlende Werte
+  stehen als `?`. Mehrere Sensoren bleiben einzeln sichtbar; ohne eindeutigen
+  Einzelwert wird keine Raumtemperatur für das kompakte Label abgeleitet.
+  Für die aktuelle Heizlast fehlt weiterhin eine Datenquelle; sie bleibt `?`.
+  Panel und alte Kartenkennung
   dürfen ausschließlich den festen Grundriss anzeigen und keine Möglichkeit
   zum Hinzufügen oder Importieren eines anderen Plans bieten.
 - Integrationstests prüfen automatisches Laden und Entladen der gebündelten
@@ -243,7 +262,13 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
 - `planning-data.json` enthält den einzigen implementierten Grundriss.
   Vereinfachte Konturen sind keine Vermessung; Flächen und Lasten stammen
   ausschließlich aus den neutral belegten Quelldokumenten. Gemeinsame
-  Rechenzonen bleiben gemeinsam und die unbestätigte Bad-Zuordnung sichtbar.
+  Rechenzonen bleiben gemeinsam. Zone 4 hat eine einzelne Beschriftung „Diele“
+  im freien Bereich; Zone 6 eine zusammenhängende Kontur „Schlafzimmer“.
+  Die Bad-Zuordnung ist vom Benutzer bestätigt, ihre unbeschriftete Planfläche
+  bleibt unbekannt. Benutzerseitig ausdrücklich vorgegebene neue Anzeigenamen
+  werden nur als Raumlabel übernommen; persönliche Angaben aus Quelldokumenten
+  bleiben ausgeschlossen. Änderungen an Namen und Konturen erhalten Zonen-IDs,
+  dokumentierte Lasten und bestehende Sensorzuordnungen.
 - Originaldokumente und persönliche Angaben bleiben außerhalb des Repositorys.
   Es gibt keine Bild-Uploads, externen LLM-Anfragen oder Bildspeicherung.
   `examples/`, das frühere Import-Schema und generische Geometrie-Werkzeuge

@@ -45,7 +45,7 @@
     },
     {
       "id": 4,
-      "name": "Gard./Diele",
+      "name": "Diele",
       "floor": "EG",
       "area": 15.07,
       "temperature": 22.0,
@@ -69,7 +69,7 @@
     },
     {
       "id": 6,
-      "name": "Schlafen/Ankleide",
+      "name": "Schlafzimmer",
       "floor": "OG",
       "area": 26.35,
       "temperature": 22.0,
@@ -89,7 +89,7 @@
       "transmission": 447.5,
       "ventilation": 194.04,
       "page": 12,
-      "uncertain": true
+      "uncertain": false
     },
     {
       "id": 8,
@@ -105,7 +105,7 @@
     },
     {
       "id": 9,
-      "name": "Kind 1",
+      "name": "Basti",
       "floor": "OG",
       "area": 16.0,
       "temperature": 22.0,
@@ -129,7 +129,7 @@
     },
     {
       "id": 11,
-      "name": "Kind 2",
+      "name": "Ostzimmer",
       "floor": "OG",
       "area": 13.84,
       "temperature": 22.0,
@@ -167,8 +167,12 @@
         ]
       ],
       "center": [
-        61.98,
-        176.721
+        69.099,
+        175.325
+      ],
+      "label_box": [
+        96,
+        30
       ]
     },
     {
@@ -197,8 +201,12 @@
         ]
       ],
       "center": [
-        168.629,
-        176.721
+        195.822,
+        175.325
+      ],
+      "label_box": [
+        124,
+        30
       ]
     },
     {
@@ -227,17 +235,21 @@
         ]
       ],
       "center": [
-        311.574,
-        175.604
+        313.668,
+        175.325
+      ],
+      "label_box": [
+        80,
+        30
       ]
     },
     {
-      "key": "eg_gard",
-      "name": "Gard.",
-      "short": "Gard.",
+      "key": "eg_diele",
+      "name": "Diele",
+      "short": "Diele",
       "floor": "EG",
       "zone": 4,
-      "area": 3.68,
+      "area": 15.07,
       "poly": [
         [
           178.345,
@@ -305,21 +317,12 @@
         ]
       ],
       "center": [
-        395.33,
-        176.162
-      ]
-    },
-    {
-      "key": "eg_diele",
-      "name": "Diele",
-      "short": "Diele",
-      "floor": "EG",
-      "zone": 4,
-      "area": 11.39,
-      "poly": null,
-      "center": [
-        197.107,
-        244.284
+        302,
+        280
+      ],
+      "label_box": [
+        190,
+        30
       ]
     },
     {
@@ -398,6 +401,10 @@
       "center": [
         92.132,
         375.503
+      ],
+      "label_box": [
+        140,
+        30
       ]
     },
     {
@@ -409,8 +416,12 @@
       "area": 18.94,
       "poly": null,
       "center": [
-        218.883,
+        226,
         398.954
+      ],
+      "label_box": [
+        120,
+        30
       ]
     },
     {
@@ -424,23 +435,35 @@
       "center": [
         370.761,
         415.706
+      ],
+      "label_box": [
+        96,
+        30
       ]
     },
     {
-      "key": "og-schlafen",
-      "name": "Schlafen",
-      "short": "Schlafen",
+      "key": "og-schlafzimmer",
+      "name": "Schlafzimmer",
+      "short": "Schlafzimmer",
       "floor": "OG",
       "zone": 6,
-      "area": 18.67,
+      "area": 26.35,
       "poly": [
         [
           15.162,
           137.162
         ],
         [
-          169.567,
+          300.344,
           137.162
+        ],
+        [
+          300.344,
+          215.43
+        ],
+        [
+          169.567,
+          215.43
         ],
         [
           169.567,
@@ -468,43 +491,17 @@
         ]
       ],
       "center": [
-        92.281,
-        230.922
-      ]
-    },
-    {
-      "key": "og-ankleide",
-      "name": "Ankleide",
-      "short": "Ankleide",
-      "floor": "OG",
-      "zone": 6,
-      "area": 7.68,
-      "poly": [
-        [
-          173.633,
-          137.162
-        ],
-        [
-          300.344,
-          137.162
-        ],
-        [
-          300.344,
-          215.43
-        ],
-        [
-          173.633,
-          215.43
-        ]
+        155,
+        179
       ],
-      "center": [
-        236.909,
-        183.67
+      "label_box": [
+        220,
+        30
       ]
     },
     {
-      "key": "og-sanitaer-unbenannt",
-      "name": "Sanitärraum (unbeschriftet)",
+      "key": "og-bad",
+      "name": "Bad",
       "short": "Bad",
       "floor": "OG",
       "zone": 7,
@@ -552,8 +549,12 @@
         ]
       ],
       "center": [
-        372.082,
-        191.476
+        366,
+        180
+      ],
+      "label_box": [
+        100,
+        30
       ]
     },
     {
@@ -648,12 +649,16 @@
       "center": [
         231.568,
         322.957
+      ],
+      "label_box": [
+        96,
+        30
       ]
     },
     {
       "key": "og-kind-i",
-      "name": "Kind I",
-      "short": "Kind I",
+      "name": "Basti",
+      "short": "Basti",
       "floor": "OG",
       "zone": 9,
       "area": 16.0,
@@ -684,8 +689,12 @@
         ]
       ],
       "center": [
-        89.817,
-        354.593
+        84.271,
+        368.79
+      ],
+      "label_box": [
+        128,
+        30
       ]
     },
     {
@@ -732,12 +741,16 @@
       "center": [
         219.652,
         417.456
+      ],
+      "label_box": [
+        112,
+        30
       ]
     },
     {
       "key": "og-kind-ii",
-      "name": "Kind II",
-      "short": "Kind II",
+      "name": "Ostzimmer",
+      "short": "Ostzimmer",
       "floor": "OG",
       "zone": 11,
       "area": 13.84,
@@ -762,6 +775,10 @@
       "center": [
         357.702,
         366.508
+      ],
+      "label_box": [
+        124,
+        30
       ]
     }
   ],
