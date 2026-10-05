@@ -151,8 +151,10 @@ Der mitgelieferte Datensatz
 [`planning-data.json`](custom_components/heizlast_ha/planning-data.json)
 enthält ausschließlich benötigte fachliche Daten und neutrale Quellenbelege
 wie **Plan EG**, **Plan OG** und **Heizlastberechnung** mit Blatt-/Seitennummern.
-Namen, Ort, Postleitzahl, persönliche Originaldateinamen, Benutzerpfade und
-Original-PDFs werden nicht ausgeliefert.
+Personenangaben aus den Quelldokumenten, Ort, Postleitzahl, persönliche
+Originaldateinamen, Benutzerpfade und Original-PDFs werden nicht ausgeliefert.
+Ausdrücklich gewünschte Anzeigenamen werden ausschließlich als Raumlabel
+übernommen.
 
 ## Daten und Speicherung
 
