@@ -1,7 +1,7 @@
 # heizlast-ha
 
 Home-Assistant-Integration mit einer interaktiven digitalen Grundrisskarte.
-Version **0.11.0** öffnet den fest implementierten Grundriss direkt in der
+Version **0.11.1** öffnet den fest implementierten Grundriss direkt in der
 HA-Seitenleiste. Erdgeschoss und Obergeschoss zeigen die aus den Werkplänen
 übernommenen Raumkonturen und die belegten Normheizlasten von elf Rechenzonen.
 Räume lassen sich anklicken; rechts stehen Fläche, Auslegungstemperatur,
@@ -118,8 +118,12 @@ und die beschrifteten Schaltflächen wählen eine Rechenzone aus. Die Konturen
 sind vereinfacht nachgezeichnet; ihre Zeichenkoordinaten sind kein Aufmaß.
 Flächen stammen ausschließlich aus den Dokumentangaben.
 
+Alle Raumnamen verwenden dieselbe Schriftfamilie und Schriftgröße. Die
+Wertezeile darunter ist halb so groß; Texte werden nicht raumweise gestreckt.
+
 - Wohnen/Essen/Küche bilden einen offenen Bereich mit einer gemeinsamen
-  Heizlast. Zone 4 ist als **Diele** beschriftet. Schlafen und Ankleide
+  Heizlast und einem einzelnen Label **Wohnen und Essen**. Zone 4 ist als
+  **Diele** beschriftet. Schlafen und Ankleide
   bilden eine zusammenhängende Kontur **Schlafzimmer** mit dem bisherigen
   gemeinsamen Heizlastwert.
 - Die Zuordnung des Bads zur berechneten Zone 7 ist bestätigt. Seine

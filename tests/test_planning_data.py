@@ -27,7 +27,7 @@ def test_documented_floor_totals_and_shared_zone_areas():
         assert sum(zone["load"] for zone in group) == pytest.approx(load)
     for identifier, names in [
         (4, {"Diele"}),
-        (5, {"Wohnen", "Essen", "Küche"}),
+        (5, {"Wohnen und Essen"}),
         (6, {"Schlafzimmer"}),
     ]:
         members = [shape for shape in data["shapes"] if shape["zone"] == identifier]
@@ -39,7 +39,7 @@ def test_documented_floor_totals_and_shared_zone_areas():
 
 def test_merged_rooms_have_single_boundary_and_bad_is_confirmed():
     data = json.loads(DATA.read_text())
-    assert len(data["shapes"]) == 13
+    assert len(data["shapes"]) == 11
     for identifier, count in [(4, 1), (5, 1), (6, 1)]:
         members = [shape for shape in data["shapes"] if shape["zone"] == identifier]
         assert sum(shape["poly"] is not None for shape in members) == count
@@ -53,6 +53,7 @@ def test_merged_rooms_have_single_boundary_and_bad_is_confirmed():
     assert not any(zone["uncertain"] for zone in data["zones"])
     for identifier, name in [
         (4, "Diele"),
+        (5, "Wohnen und Essen"),
         (6, "Schlafzimmer"),
         (9, "Basti"),
         (11, "Ostzimmer"),
@@ -64,6 +65,22 @@ def test_merged_rooms_have_single_boundary_and_bad_is_confirmed():
         assert {
             shape["name"] for shape in data["shapes"] if shape["zone"] == identifier
         } == {name}
+
+
+def test_living_area_uses_one_label_and_preserves_documented_values():
+    data = json.loads(DATA.read_text())
+    members = [shape for shape in data["shapes"] if shape["zone"] == 5]
+    assert len(members) == 1
+    assert members[0]["key"] == "eg_wohnen"
+    assert members[0]["area"] == pytest.approx(25.07 + 18.94 + 12.45)
+    zone = next(zone for zone in data["zones"] if zone["id"] == 5)
+    assert (zone["area"], zone["load"], zone["transmission"], zone["ventilation"]) == (
+        56.46,
+        2432.26,
+        1578.8,
+        853.47,
+    )
+    assert all(shape["poly"] is not None for shape in data["shapes"])
 
 
 def test_bedroom_join_preserves_both_traced_rooms_and_documented_values():

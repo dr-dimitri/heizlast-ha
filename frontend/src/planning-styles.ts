@@ -40,8 +40,9 @@ export const planningStyles = css`
   .room-label-box { overflow:visible; }
   .room-label { display:block; width:100%; height:100%; padding:0; border:1px solid transparent; border-radius:6px; color:var(--primary-text-color); background:color-mix(in srgb,var(--surface) 85%,transparent); }
   .room-label:focus-visible { outline-offset:-3px; }
+  .room-name,.room-readings { font-family:inherit; }
   .room-name { font-size:12px; font-weight:600; fill:currentColor; }
-  .room-readings { font-size:8px; fill:var(--muted); font-variant-numeric:tabular-nums; }
+  .room-readings { font-size:6px; fill:var(--muted); font-variant-numeric:tabular-nums; }
   .room-label.selected { border-color:var(--accent); color:var(--accent); background:var(--surface); }
   .stairs { fill:var(--subtle); stroke:var(--muted); stroke-width:1; opacity:.65; }
   .stair-step { stroke:var(--muted); stroke-width:.7; opacity:.6; }
