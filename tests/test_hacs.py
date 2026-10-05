@@ -81,12 +81,24 @@ def test_hacs_installation_includes_card_and_only_integration_files(
             "www/heizlast-ha-card.js",
             "brand/icon.png",
             "floorplan-v1.schema.json",
+            "planning.py",
+            "planning-data.json",
         } <= names
         assert not any(
             name.startswith(("custom_components/", "frontend/", "tests/"))
             for name in names
         )
         assert not any("__pycache__" in name for name in names)
+        planning = bundle.read("planning-data.json")
+        assert (
+            planning
+            == (root / "custom_components/heizlast_ha/planning-data.json").read_bytes()
+        )
+        assert json.loads(planning)["schema_version"] == 1
+        assert (
+            bundle.read("planning.py")
+            == (root / "custom_components/heizlast_ha/planning.py").read_bytes()
+        )
         # HACS extracts the ZIP directly into this directory.
         destination = tmp_path / "config/custom_components/heizlast_ha"
         bundle.extractall(destination)
@@ -100,6 +112,9 @@ def test_hacs_installation_includes_card_and_only_integration_files(
     with ZipFile(project_archive) as bundle:
         assert (
             "custom_components/heizlast_ha/www/heizlast-ha-card.js" in bundle.namelist()
+        )
+        assert (
+            bundle.read("custom_components/heizlast_ha/planning-data.json") == planning
         )
     assert (root / "custom_components/heizlast_ha/www/heizlast-ha-card.js").is_file()
     assert (
@@ -135,9 +150,85 @@ def test_hacs_build_requires_tracked_repository_manifest(hacs_repository):
         build(root, root / "dist")
 
 
+@pytest.mark.parametrize("filename", ["planning.py", "planning-data.json"])
+def test_hacs_build_requires_tracked_planning_runtime(hacs_repository, filename):
+    root = hacs_repository
+    subprocess.run(
+        ["git", "rm", "--cached", f"custom_components/heizlast_ha/{filename}"],
+        cwd=root,
+        check=True,
+    )
+    # A file that exists only locally would be absent from the installed archive.
+    assert (root / "custom_components/heizlast_ha" / filename).is_file()
+    with pytest.raises(ValueError, match="runtime files must be tracked"):
+        build(root, root / "dist")
+    assert not (root / "dist/heizlast_ha.zip").exists()
+
+
+def test_packaged_planning_data_has_only_neutral_source_references(hacs_repository):
+    root = hacs_repository
+    build(root, root / "dist")
+    with ZipFile(root / "dist/heizlast_ha.zip") as bundle:
+        planning = json.loads(bundle.read("planning-data.json"))
+    private_fields = {
+        "source_files",
+        "original_filename",
+        "file_path",
+        "owner",
+        "client",
+        "author",
+        "address",
+        "postcode",
+        "postal_code",
+        "location",
+        "contact",
+        "email",
+        "phone",
+    }
+
+    def check(value):
+        if isinstance(value, dict):
+            assert not private_fields.intersection(value)
+            for child in value.values():
+                check(child)
+        elif isinstance(value, list):
+            for child in value:
+                check(child)
+        elif isinstance(value, str):
+            assert not any(
+                marker in value
+                for marker in (
+                    "/Users/",
+                    "/home/",
+                    "\\Users\\",
+                    "CloudStorage",
+                    "OneDrive",
+                    "file://",
+                    "http://",
+                    "https://",
+                    ".pdf",
+                )
+            )
+
+    check(planning)
+    sources = planning["sources"]
+    references = [sources["building"], sources["room_sum"]]
+    references.extend(sources["plans"].values())
+    for reference in references:
+        assert set(reference) == {"document", "page", "sheet"}
+        assert reference["document"] in {"Plan EG", "Plan OG", "Heizlastberechnung"}
+
+
 @pytest.mark.parametrize(
     "omit",
-    ["manifest.json", "repairs.py", "www/heizlast-ha-card.js", "build-info.json"],
+    [
+        "manifest.json",
+        "repairs.py",
+        "planning.py",
+        "planning-data.json",
+        "www/heizlast-ha-card.js",
+        "build-info.json",
+    ],
 )
 def test_release_refuses_incomplete_installation(hacs_repository, omit):
     root = hacs_repository

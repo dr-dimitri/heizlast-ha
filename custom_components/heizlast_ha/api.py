@@ -70,8 +70,34 @@ async def ws_save_project(
     connection.send_result(msg["id"], result)
 
 
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/save_planning_bindings",
+        vol.Required("revision"): int,
+        vol.Required("bindings"): dict,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_save_planning_bindings(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Commit sensor selections for the bundled calculation zones."""
+    try:
+        result = await get_project(hass).async_save_planning_bindings(
+            msg["revision"], msg["bindings"]
+        )
+    except ProjectError as err:
+        connection.send_error(msg["id"], err.code, str(err))
+        return
+    connection.send_result(msg["id"], result)
+
+
 @callback
 def async_register_api(hass: HomeAssistant) -> None:
     """Register once; handlers look up the active project on every request."""
     websocket_api.async_register_command(hass, ws_get_project)
     websocket_api.async_register_command(hass, ws_save_project)
+    websocket_api.async_register_command(hass, ws_save_planning_bindings)

@@ -1,16 +1,22 @@
 # heizlast-ha
 
 Home-Assistant-Integration mit einer interaktiven digitalen Grundrisskarte.
-Version **0.8.0** enthält den Zeicheneditor direkt im Dashboard **Heizlast HA**.
-Grundrisse lassen sich neu anlegen oder als LLM-JSON importieren. Beide Einstiege
-verwenden denselben Ablauf für Geschosse, Räume, Temperatursensoren und Speicherung.
-Räume können gezeichnet, korrigiert, geteilt, verbunden und gelöscht werden.
-Ein kopierbarer Prompt hilft beim externen LLM; ein Bild-Upload in die Integration
-ist nicht erforderlich. Das Dashboard steht automatisch in der HA-Seitenleiste.
+Version **0.9.0** öffnet das ausgewählte Grundriss-Dashboard direkt in der
+HA-Seitenleiste. Erdgeschoss und Obergeschoss zeigen die aus den Werkplänen
+übernommenen Raumkonturen und die belegten Normheizlasten von elf Rechenzonen.
+Räume lassen sich anklicken; rechts stehen Fläche, Auslegungstemperatur,
+Wärmeverluste, Quellenbelege und vorhandene Temperatursensoren.
+Spitzboden und Nebengebäude gehören nicht zur Darstellung.
 
 Die Integration speichert Grundriss-JSON und Sensorzuordnungen in Home Assistant.
-Temperaturwerte kommen direkt von den vorhandenen Sensoren. Eine
-Heizlastberechnung und Heizungssteuerung folgen in späteren Projektphasen.
+Temperaturwerte kommen direkt von den vorhandenen Sensoren. Dokumentierte
+Normheizlasten sind Planungsdaten, keine aktuellen Messwerte. Ohne Sensorzuordnung
+werden keine Raumtemperaturen vorgetäuscht. Eine Berechnung des aktuellen
+Wärmebedarfs und eine Heizungssteuerung sind nicht enthalten.
+
+Unter **Eigene Grundrisse** bleibt der vorhandene Zeicheneditor mit Neuanlage,
+JSON-Import, Raumteilung und Sensorzuordnung verfügbar. Bestehende Benutzerpläne
+werden beim Update erhalten und nicht durch den mitgelieferten Grundriss ersetzt.
 
 ## Installation über HACS
 
@@ -24,8 +30,8 @@ Heizlast HA wird als **benutzerdefiniertes Repository** installiert:
 4. Home Assistant neu starten. Unter **Einstellungen → Geräte & Dienste →
    Integration hinzufügen** nach **Heizlast HA** suchen und hinzufügen.
 5. Die Browserseite neu laden und links **Heizlast HA** öffnen. Das Dashboard
-   zeigt direkt die Auswahl zwischen Neuanlage und LLM-JSON-Import. Beide
-   Einstiege führen in den gemeinsamen Zeicheneditor. Es ist auch über den
+   zeigt direkt den mitgelieferten Grundriss mit Geschossauswahl. Unter
+   **Eigene Grundrisse** sind Neuanlage und JSON-Import erreichbar. Es ist auch über den
    Öffnen-Link der Integration unter **Geräte & Dienste** erreichbar.
 
 Das eigene Dashboard wird als Home-Assistant-Panel bereitgestellt und benötigt
@@ -38,13 +44,15 @@ verwendet die Integration den nächsten freien Pfad, etwa `/heizlast-ha-2`.
 Die Karte kann zusätzlich in ein eigenes Dashboard eingebunden werden:
 
 ```yaml
-type: custom:heizlast-ha-card
+type: custom:heizlast-grundriss-card
 ```
 
 Dashboard und Karte sind im HACS-Paket enthalten und werden von der Integration
 selbst geladen. Eine zusätzliche HACS-Dashboard-Installation und ein manuell
 angelegter Ressourceneintrag sind nicht erforderlich. Dies funktioniert mit
 über die Oberfläche verwalteten Dashboards und YAML-Dashboards.
+Die bestehende Karte `custom:heizlast-ha-card` für eigene Benutzergrundrisse
+bleibt ebenfalls verfügbar.
 
 Updates ebenfalls über HACS herunterladen, anschließend Home Assistant neu
 starten und die Browserseite neu laden. Grundrisse und Sensorzuordnungen
@@ -92,16 +100,54 @@ Das größere Projektarchiv aus der CI enthält zusätzlich Quellcode, Tests und
 Beispiele; daraus nur den Inhalt von `custom_components/heizlast_ha/` nach
 `/config/custom_components/heizlast_ha/` kopieren.
 
-## Vom Grundriss zur Temperaturanzeige
+## Normheizlasten und Sensoren im Grundriss
 
-Der gemeinsame Ablauf lautet **Quelle → Geschosse → Räume → Sensoren → Prüfen**.
+**Erdgeschoss** und **Obergeschoss** wechseln die Ansicht. Die Raumkonturen
+und die beschrifteten Schaltflächen wählen eine Rechenzone aus. Die Konturen
+sind vereinfacht nachgezeichnet; ihre Zeichenkoordinaten sind kein Aufmaß.
+Flächen stammen ausschließlich aus den Dokumentangaben.
+
+- Wohnen/Essen/Küche bilden einen offenen Bereich mit einer gemeinsamen
+  Heizlast. Gard./Diele bilden ebenfalls eine Rechenzone. Schlafen und Ankleide
+  besitzen getrennte Konturen und einen gemeinsamen Heizlastwert.
+- Das Bad ist mit **?** gekennzeichnet: Im OG-Plan ist der Sanitärraum
+  unbeschriftet. Seine Zuordnung zur berechneten Zone 7 bleibt zu bestätigen;
+  12,74 m² und 641,59 W sind belegte Berechnungswerte, keine aus der Kontur
+  abgeleiteten Zahlen.
+- Die Gebäude-Normheizlast beträgt **5.989 W**, die Raumheizlastsumme
+  **7.354,5 W**. Die Berechnung berücksichtigt Lüftungsverluste auf Gebäudeebene
+  nur hälftig. Beide Werte werden entsprechend getrennt beschriftet.
+- Auslegungstemperaturen von 22 °C beziehungsweise 24 °C sind
+  Berechnungsannahmen. Aktuelle Raumtemperaturen stammen ausschließlich aus
+  tatsächlich zugeordneten Home-Assistant-Temperatursensoren.
+
+Administratoren können in der Raumauswahl vorhandene Temperatursensoren
+zuordnen und die Auswahl ausdrücklich speichern. Die Zuordnung gilt für die
+gesamte Rechenzone; mehrere Sensorwerte erscheinen einzeln. Entfernte oder
+nicht verfügbare Sensoren bleiben erkennbar. Normale Benutzer können die
+gespeicherten Zuordnungen und Werte ansehen. Die Zuordnungen werden zentral in
+Home Assistant gespeichert und nutzen eine gemeinsame Projekt-Revision, um
+gleichzeitige Änderungen nicht zu überschreiben.
+
+Der mitgelieferte Datensatz
+[`planning-data.json`](custom_components/heizlast_ha/planning-data.json)
+enthält ausschließlich benötigte fachliche Daten und neutrale Quellenbelege
+wie **Plan EG**, **Plan OG** und **Heizlastberechnung** mit Blatt-/Seitennummern.
+Namen, Ort, Postleitzahl, persönliche Originaldateinamen, Benutzerpfade und
+Original-PDFs werden nicht ausgeliefert.
+
+## Eigene Grundrisse und deren Temperaturanzeige
+
+Unter **Eigene Grundrisse** lautet der gemeinsame Ablauf
+**Quelle → Geschosse → Räume → Sensoren → Prüfen**.
 Bei einem vorhandenen Plan öffnet **Grundriss bearbeiten** dieselben Werkzeuge.
 
 1. Unter **Quelle** entweder **Neuen Grundriss erstellen** wählen oder JSON
    einfügen beziehungsweise eine Datei laden und **Import prüfen** wählen.
    Für die LLM-Erkennung Etagen-ID und Etagenname eingeben, **LLM-Prompt anzeigen**
-   und **Prompt kopieren** verwenden. Prompt und Originalgrundriss direkt im
-   externen LLM beifügen. Die Integration sendet keine LLM-Anfragen und speichert
+   und **Prompt kopieren** verwenden. Private Originaldokumente bleiben lokal;
+   bei Verwendung eines externen LLM ausschließlich vollständig anonymisierte
+   Unterlagen verwenden. Die Integration sendet keine LLM-Anfragen und speichert
    keine Bilder. Importierte Angaben sind im Editor vorausgefüllt.
 2. Unter **Geschosse** Geschosse anlegen, umbenennen, sortieren oder löschen.
    Die Zeichenfläche ist anpassbar; ihre Einheiten sind kein metrischer Maßstab.
@@ -216,8 +262,8 @@ Integrationsmanifest, Frontend und `VERSION` müssen die gleiche Projektversion
 nennen.
 
 Mit `npm run dev` im Ordner `frontend/` lässt sich die Karte gegen einen lokalen
-Entwicklungsadapter ansehen. Dieser stellt Beispielsensoren und einen
-simulierten Speicher bereit; die ausgelieferte Karte nutzt die echte
+Entwicklungsadapter ansehen. Dieser zeigt die dokumentierten Planungswerte ohne
+simulierte Raumtemperaturen und nutzt lokalen Browser-Speicher. Die ausgelieferte Karte nutzt die echte
 Home-Assistant-Verbindung und dessen persistenten Speicher.
 
 Die GitHub-CI prüft Pull Requests nach `main` sowie Änderungen auf `main` und

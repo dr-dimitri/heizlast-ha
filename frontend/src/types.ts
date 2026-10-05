@@ -19,6 +19,7 @@ export interface Project {
   revision: number;
   plan: Floorplan | null;
   bindings: Record<string, string[]>;
+  planning_bindings?: Record<string, string[]>;
 }
 export interface HassState {
   entity_id: string;

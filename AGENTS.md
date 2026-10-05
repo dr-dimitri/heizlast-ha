@@ -2,6 +2,41 @@
 
 Diese Vorgaben gelten für das gesamte Repository.
 
+## Festgelegte Dashboard-Darstellung
+
+- Der ausgewählte Entwurf ist das **Grundrissmodell** mit getrennten Ansichten
+  für Erdgeschoss und Obergeschoss sowie anklickbaren Räumen.
+- Dargestellt wird ausschließlich das beheizte Wohnhaus. Spitzboden,
+  Technikraum, Gerätelager und Garage bleiben außerhalb des Dashboards.
+
+## Datenschutz bei Quelldokumenten und Quellcode
+
+- **Keine personenbezogenen oder identifizierenden Angaben aus den
+  Quelldokumenten in den Quellcode übernehmen.** Dazu gehören insbesondere
+  Personen- und Eigentümernamen, Anschriften, Orte, Postleitzahlen,
+  Kontaktdaten sowie Angaben zu Bauherren und Dokumentverfassern.
+- Diese Vorgabe gilt auch für Kommentare, Konfigurationen, Testdaten,
+  Beispieldaten, Dokumentation, Grafiken, Metadaten und Buildartefakte.
+  Persönliche Bezeichnungen für das Gebäude, Originaldateinamen mit Namen
+  und lokale Dateipfade mit Benutzer- oder Ortsangaben ebenfalls nicht
+  übernehmen. Neutrale Bezeichnungen und Platzhalter verwenden.
+- Nur die für das Dashboard erforderlichen fachlichen Daten übernehmen:
+  Geschosse, neutrale Raumbezeichnungen ohne Personenbezug, Raumkonturen,
+  Flächen und belegte Heizlastwerte. Keine Messwerte erfinden. Für
+  nachvollziehbare Quellenbelege neutrale Dokumentkennungen wie
+  `Plan EG`, `Plan OG` und `Heizlastberechnung` mit Seiten- oder
+  Blattnummern verwenden.
+- Original-PDFs, daraus erzeugte Planbilder und ungefilterte Text- oder
+  OCR-Ausgaben ausschließlich lokal außerhalb des Repositorys aufbewahren.
+  Nicht mit Git erfassen, in Pakete aufnehmen oder an externe Dienste
+  übertragen. Private Zuordnungen zwischen neutralen Kennungen und
+  Originaldokumenten bleiben ebenfalls außerhalb des Repositorys.
+- Vor jedem Commit und Build die geänderten beziehungsweise vorgemerkten
+  Dateien sowie einzupackende Grafiken und Metadaten auf solche Angaben
+  prüfen. Gefundene persönliche Angaben entfernen oder anonymisieren;
+  anschließend erneut prüfen. Der Implementierungsreview muss die
+  Einhaltung dieser Datenschutzvorgaben ausdrücklich einschließen.
+
 ## Verbindlicher Ablauf nach jeder Implementierung
 
 1. **Review durchführen.** Jede Implementierung muss vor dem Build auf
@@ -61,6 +96,10 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
    `pytest-homeassistant-custom-component==0.13.367` und verwenden die stabile
    Home-Assistant-Version `2026.9.4`. `home-assistant-frontend==20260826.7`
    stellt deren echte Oberfläche für die Kartenregistrierungstests bereit.
+   Die Fixtures verlangen selbst exakt `pytest==9.0.3`; das in der ursprünglichen
+   CI-Grundlage genannte `9.1.1` ist mit dieser Abhängigkeitskombination nicht
+   gemeinsam installierbar. Deshalb bleibt die vorhandene kompatible Version
+   verbindlich, bis die Home-Assistant-Testfixtures gemeinsam aktualisiert werden.
    Für Schema-, Bild- und Geometrieprüfungen
    werden `jsonschema==4.26.0`, `Pillow==12.3.0` und `shapely==2.1.2`
    installiert. Den Dokumentationsabgleich ausführen,
@@ -95,7 +134,7 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
 ### Versionierung und Paketinhalt
 
 - `VERSION` ist die zentrale Projektversion im Format `MAJOR.MINOR.PATCH`,
-  aktuell `0.8.0`. Für eine neue Implementierung die Version nach SemVer
+  aktuell `0.9.0`. Für eine neue Implementierung die Version nach SemVer
   erhöhen. Jeder Merge benötigt eine bisher unveröffentlichte Version für das
   verpflichtende HACS-Release; reine Dokumentationsänderungen erhöhen mindestens
   die Patch-Version. CI-Builds erhalten zusätzlich eine eindeutige Buildkennung.
@@ -137,6 +176,22 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   Änderungen ausschließlich am Backend lösen bei identischer Karte keine
   Reparatur aus. `repairs.py` ist eine verpflichtende Laufzeitdatei und wird
   sowohl beim Build als auch vor der HACS-Veröffentlichung geprüft.
+- `planning.py` und `planning-data.json` sind ebenfalls verpflichtende,
+  Git-verwaltete Laufzeitdateien. Build und Releaseprüfung lehnen fehlende
+  Dateien ab. Der Datensatz enthält ausschließlich anonymisierte fachliche
+  Planungswerte, Konturen und neutrale Quellenbelege; er wird in das
+  Integrationsarchiv aufgenommen und vom Frontend im Kartenmodul gebündelt.
+- Das Seitenleisten-Panel öffnet standardmäßig die neue Karte
+  `heizlast-grundriss-card` mit Erdgeschoss/Obergeschoss und elf Rechenzonen.
+  Die bisherige Karte `heizlast-ha-card` bleibt unter **Eigene Grundrisse**
+  und für bestehende Lovelace-Konfigurationen erreichbar. Ihr Grundriss und
+  ihre Sensorzuordnungen werden nicht durch den mitgelieferten Plan ersetzt.
+  Zusätzliche optionale `planning_bindings` werden separat im Projekt gespeichert.
+  `heizlast_ha/save_planning_bindings` erfordert Administratorrechte und dieselbe
+  optimistische Projekt-Revision wie die bestehenden Speicherbefehle. Neue
+  Zuordnungen müssen echte Temperatursensoren sein; historische Zuordnungen
+  bleiben lesbar. Normheizlasten und Auslegungstemperaturen sind ausschließlich
+  Planungsdaten; aktuelle Werte werden nur aus Home Assistants Zustand gelesen.
 - Das Projekt enthält die Integration `custom_components/heizlast_ha/` und
   die Dashboard-Karte unter `frontend/`. Beide Komponenten sind damit in der
   CI verpflichtend; Hassfest und Frontend-Prüfungen dürfen für vorhandenen Code
@@ -170,6 +225,14 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   Reparaturtests prüfen Erstinstallation, Kartenänderungen, Bestätigung,
   Neustart, veraltete Dialoge, Bereinigung und deutsche/englische Übersetzungen
   mit Home Assistants echtem Reparaturmanager.
+- Neue Planungsdaten-Tests prüfen gemeinsame Rechenzonen, Flächen-/Lastsummen,
+  gültige Konturen, Bad-Zuordnung mit unbekannter Planfläche und den Ausschluss
+  unbeheizter Gebäudeteile. HACS-Tests prüfen die neuen Pflichtdateien und
+  neutrale Quellenbelege. Backendtests prüfen separate Sensorzuordnungen,
+  Benutzerrechte, dauerhafte Speicherung, Wiederladen, Konflikte und den
+  gegenseitigen Erhalt eigener Benutzerpläne und Planungszuordnungen.
+  Frontendtests prüfen Geschoss-/Raumauswahl, gemeinsame Lasten, Bad-Warnhinweis,
+  echte Sensorzustände, fehlende Messwerte und den Wechsel zum bestehenden Editor.
 - Die Frontend-Prüfungen führen den TypeScript-Compiler ohne Ausgabe aus.
   Vitest prüft unter anderem Schema-/Geometrievalidierung, Prompt und
   Kartennutzung; Vite bündelt die Karte als eigenständiges JavaScript-Modul
@@ -201,8 +264,9 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   Temperatursensoren sein. Das letzte gelöschte Geschoss setzt `plan` auf `null`.
   Das frühere bildbasierte Format `1.0` und das Feld `background` entfallen;
   bestehende bildbasierte Pläne müssen nicht migriert werden.
-- Die Einrichtung erzeugt nur den LLM-Prompt; der Originalgrundriss wird direkt
-  im externen LLM beigefügt. Die Integration speichert ausschließlich Grundriss-JSON
+- Die Einrichtung erzeugt nur den LLM-Prompt. Private Originaldokumente bleiben
+  lokal; bei einem externen LLM darf nur vollständig anonymisiertes Material
+  verwendet werden. Die Integration speichert ausschließlich Grundriss-JSON
   und Sensorzuordnungen in Home Assistant. Bild-Upload, Bildendpunkt und
   Bildspeicherung entfallen. Anzeige und Korrekturen benötigen kein Originalbild.
   Der Frontend-Entwicklungsadapter darf ausschließlich für lokale Vorschau und

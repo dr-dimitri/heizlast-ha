@@ -83,6 +83,8 @@ def build(root: Path, output: Path, build_id: str | None = None) -> Path:
             "__init__.py",
             "manifest.json",
             "frontend.py",
+            "planning.py",
+            "planning-data.json",
             "repairs.py",
             "brand/icon.png",
         }
