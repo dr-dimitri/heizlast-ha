@@ -1,4 +1,4 @@
-"""Configuration flow for the single floor plan project."""
+"""Configuration flow for the fixed residential dashboard."""
 
 from typing import Any
 

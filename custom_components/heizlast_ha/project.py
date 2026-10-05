@@ -10,16 +10,11 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
 from .const import STORAGE_KEY, STORAGE_VERSION
-from .planning import validate_planning_bindings
-from .validation import (
+from .planning import (
     JsonObject,
     ProjectError,
     is_temperature_state,
-    load_validator,
-    validate_bindings,
-    validate_plan,
-    validate_removals,
-    validate_room_operations,
+    validate_planning_bindings,
 )
 
 
@@ -40,7 +35,7 @@ def _verify_saved_project(path: str, expected: JsonObject) -> None:
 
 
 class Project:
-    """One persistent floor plan project belonging to this HA installation."""
+    """Persistent sensors for fixed calculation zones, preserving inactive old data."""
 
     def __init__(self, hass: HomeAssistant) -> None:
         """Initialize storage; setup loads data before making APIs available."""
@@ -57,13 +52,11 @@ class Project:
         self.active = True
         self.data: JsonObject = {
             "revision": 0,
-            "plan": None,
-            "bindings": {},
+            "planning_bindings": {},
         }
 
     async def async_load(self) -> None:
-        """Load the validator and persisted data without touching existing files."""
-        self.validator = await self.hass.async_add_executor_job(load_validator)
+        """Load current assignments and retain legacy data without rewriting files."""
         stored = await self.store.async_load()
         if stored is None:
             return
@@ -72,28 +65,33 @@ class Project:
             not isinstance(stored, dict)
             or type(stored.get("revision")) is not int
             or stored["revision"] < 0
-            or not isinstance(stored.get("bindings"), dict)
-            or "plan" not in stored
         ):
             raise ProjectError("Die gespeicherten Projektdaten sind ungültig.")
-        await self.hass.async_add_executor_job(self._validate_loaded, stored)
-        self.data = deepcopy(stored)
-
-    def _validate_loaded(self, stored: JsonObject) -> None:
-        """Validate persisted geometry and sensor assignments."""
-        plan = validate_plan(stored["plan"], self.validator)
-        validate_bindings(plan, stored["bindings"], stored["bindings"], lambda _: False)
+        legacy = "plan" in stored or "bindings" in stored
+        if legacy and (
+            "plan" not in stored
+            or stored["plan"] is not None
+            and not isinstance(stored["plan"], dict)
+            or not isinstance(stored.get("bindings"), dict)
+        ):
+            raise ProjectError("Die gespeicherten Altdaten sind ungültig.")
+        if "planning_bindings" not in stored and not legacy:
+            raise ProjectError("Die gespeicherten Sensorzuordnungen fehlen.")
         if "planning_bindings" in stored:
             validate_planning_bindings(
                 stored["planning_bindings"],
                 stored["planning_bindings"],
                 lambda _: False,
             )
+        self.data = deepcopy(stored)
 
     def snapshot(self) -> JsonObject:
         """Return an isolated copy; callers cannot accidentally mutate persistence."""
         self._ensure_active()
-        return deepcopy(self.data)
+        return {
+            "revision": self.data["revision"],
+            "planning_bindings": deepcopy(self.data.get("planning_bindings", {})),
+        }
 
     def _ensure_active(self) -> None:
         if not self.active:
@@ -107,64 +105,12 @@ class Project:
         )
         self.data = candidate
 
-    async def async_save(
-        self,
-        revision: int,
-        plan: Any,
-        bindings: Any,
-        confirmed_removed_room_ids: list[str],
-        room_operations: Any = None,
-    ) -> JsonObject:
-        """Validate then atomically save, rejecting stale edits and unsafe removals."""
-        async with self.lock:
-            self._ensure_active()
-            if type(revision) is not int or revision != self.data["revision"]:
-                raise ProjectError(
-                    "Das Projekt wurde zwischenzeitlich geändert. "
-                    "Bitte neu laden und Änderungen erneut prüfen.",
-                    "conflict",
-                )
-            checked_plan = await self.hass.async_add_executor_job(
-                validate_plan, plan, self.validator
-            )
-            validate_removals(
-                self.data["plan"], checked_plan, confirmed_removed_room_ids
-            )
-            inherited_bindings = await self.hass.async_add_executor_job(
-                validate_room_operations,
-                self.data["plan"],
-                checked_plan,
-                self.data["bindings"],
-                [] if room_operations is None else room_operations,
-                self.validator,
-            )
-            checked_bindings = validate_bindings(
-                checked_plan,
-                bindings,
-                self.data["bindings"],
-                lambda entity_id: is_temperature_state(
-                    entity_id, self.hass.states.get(entity_id)
-                ),
-                inherited_bindings,
-            )
-            candidate = {
-                "revision": self.data["revision"] + 1,
-                "plan": checked_plan,
-                "bindings": checked_bindings,
-            }
-            if "planning_bindings" in self.data:
-                candidate["planning_bindings"] = deepcopy(
-                    self.data["planning_bindings"]
-                )
-            await self._async_persist(candidate)
-            return self.snapshot()
-
     async def async_save_planning_bindings(
         self,
         revision: int,
         bindings: Any,
     ) -> JsonObject:
-        """Persist calculation-zone sensors without replacing an editable plan."""
+        """Persist calculation-zone sensors, leaving any inactive legacy data intact."""
         async with self.lock:
             self._ensure_active()
             if type(revision) is not int or revision != self.data["revision"]:

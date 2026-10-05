@@ -1,25 +1,7 @@
 export type Point = [number, number];
-export interface Room {
-  id: string;
-  name: string;
-  polygon: Point[];
-  area_m2: number | null;
-}
-export interface Floor {
-  id: string;
-  name: string;
-  canvas: { width: number; height: number };
-  rooms: Room[];
-}
-export interface Floorplan {
-  schema_version: "1.1";
-  floors: Floor[];
-}
 export interface Project {
   revision: number;
-  plan: Floorplan | null;
-  bindings: Record<string, string[]>;
-  planning_bindings?: Record<string, string[]>;
+  planning_bindings: Record<string, string[]>;
 }
 export interface HassState {
   entity_id: string;

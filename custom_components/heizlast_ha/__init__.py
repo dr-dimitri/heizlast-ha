@@ -1,4 +1,4 @@
-"""Heizlast HA: a persistent floor plan and temperature dashboard prototype."""
+"""Heizlast HA: the fixed residential floor plan and temperature dashboard."""
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -9,9 +9,9 @@ from homeassistant.helpers.typing import ConfigType
 from .api import async_register_api
 from .const import DOMAIN
 from .frontend import async_register_card, unregister_card
+from .planning import ProjectError
 from .project import Project
 from .repairs import async_check_dashboard_update, async_clear_dashboard_issues
-from .validation import ProjectError
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 type HeizlastConfigEntry = ConfigEntry[Project]
