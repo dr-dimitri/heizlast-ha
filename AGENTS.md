@@ -137,7 +137,7 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
 ### Versionierung und Paketinhalt
 
 - `VERSION` ist die zentrale Projektversion im Format `MAJOR.MINOR.PATCH`,
-  aktuell `0.11.0`. Für eine neue Implementierung die Version nach SemVer
+  aktuell `0.11.1`. Für eine neue Implementierung die Version nach SemVer
   erhöhen. Jeder Merge benötigt eine bisher unveröffentlichte Version für das
   verpflichtende HACS-Release; reine Dokumentationsänderungen erhöhen mindestens
   die Patch-Version. CI-Builds erhalten zusätzlich eine eindeutige Buildkennung.
@@ -242,6 +242,8 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   stehen als `?`. Mehrere Sensoren bleiben einzeln sichtbar; ohne eindeutigen
   Einzelwert wird keine Raumtemperatur für das kompakte Label abgeleitet.
   Für die aktuelle Heizlast fehlt weiterhin eine Datenquelle; sie bleibt `?`.
+  Die Raumlabels verwenden dieselbe Schriftfamilie und Namensgröße ohne
+  raumweise Streckung; die Wertezeile hat die halbe Namensschriftgröße.
   Panel und alte Kartenkennung
   dürfen ausschließlich den festen Grundriss anzeigen und keine Möglichkeit
   zum Hinzufügen oder Importieren eines anderen Plans bieten.
@@ -264,6 +266,9 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   ausschließlich aus den neutral belegten Quelldokumenten. Gemeinsame
   Rechenzonen bleiben gemeinsam. Zone 4 hat eine einzelne Beschriftung „Diele“
   im freien Bereich; Zone 6 eine zusammenhängende Kontur „Schlafzimmer“.
+  Zone 5 besitzt ein einzelnes Label „Wohnen und Essen“ für den gesamten
+  bisherigen Wohn-/Ess-/Küchenbereich. Kontur, Fläche, Heizlast und
+  Sensorzuordnung dieser gemeinsamen Rechenzone bleiben erhalten.
   Die Bad-Zuordnung ist vom Benutzer bestätigt, ihre unbeschriftete Planfläche
   bleibt unbekannt. Benutzerseitig ausdrücklich vorgegebene neue Anzeigenamen
   werden nur als Raumlabel übernommen; persönliche Angaben aus Quelldokumenten

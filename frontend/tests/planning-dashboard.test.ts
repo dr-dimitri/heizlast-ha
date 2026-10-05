@@ -26,17 +26,18 @@ describe("documented floorplan dashboard", () => {
     expect(text(card)).toContain("5.989"); expect(text(card)).toContain("7.354,5"); expect(text(card)).toContain("184,1");
     expect(text(card)).toContain("Kein Sensor zugeordnet"); expect(text(card)).not.toContain("21,4");
     expect(text(card)).not.toContain("Spitzboden"); expect(text(card)).not.toContain("Garage");
-    expect(card.shadowRoot!.querySelectorAll(".floor-tabs button")).toHaveLength(2); expect(card.shadowRoot!.querySelectorAll(".room-label")).toHaveLength(7);
+    expect(card.shadowRoot!.querySelectorAll(".floor-tabs button")).toHaveLength(2); expect(card.shadowRoot!.querySelectorAll(".room-label")).toHaveLength(5);
     expect(card.shadowRoot!.querySelector(".plan svg")!.getAttribute("viewBox")).toBe("0 122 440 400");
     expect(text(card)).toContain("Auslegung innen"); expect(text(card)).toContain("Heizlastberechnung · S. 10 / R5");
+    expect(text(card)).not.toContain("Planungswerte und Messwerte werden getrennt angezeigt. Bei mehreren Sensoren wird keine gemeinsame Temperatur abgeleitet.");
   });
-  it("keeps living spaces shared and displays the merged Diele with its complete documented load", async () => {
+  it("shows living, dining and kitchen as one selectable Wohnen und Essen room with the unchanged total load", async () => {
     const { card } = await mount(); expect(card.shadowRoot!.querySelectorAll("polygon.room-shape")).toHaveLength(5);
-    for (const shape of ["eg_wohnen", "eg_essen", "eg_kueche"]) {
-      await choose(card, shape); expect(card.shadowRoot!.querySelector("aside h2")!.textContent).toBe("Wohnen/Essen/Küche");
-      expect(card.shadowRoot!.querySelectorAll('.room-label[aria-pressed="true"]')).toHaveLength(3);
-      expect(card.shadowRoot!.querySelector(".heat-value")!.textContent).toContain("2.432,3"); expect(text(card)).toContain("Gemeinsame Rechenzone für Wohnen + Essen + Küche");
-    }
+    expect([...card.shadowRoot!.querySelectorAll(".room-name")].map((label) => label.textContent)).toEqual(["Abstellr.", "HWR", "Dusche/WC", "Diele", "Wohnen und Essen"]);
+    await choose(card, "eg_wohnen"); expect(card.shadowRoot!.querySelector("aside h2")!.textContent).toBe("Wohnen und Essen");
+    expect(card.shadowRoot!.querySelectorAll('.room-label[aria-pressed="true"]')).toHaveLength(1);
+    expect(card.shadowRoot!.querySelector(".heat-value")!.textContent).toContain("2.432,3"); expect(text(card)).toContain("56,46 m²");
+    expect(card.shadowRoot!.querySelector('[data-shape="eg_essen"], [data-shape="eg_kueche"]')).toBeNull();
     await choose(card, "eg_diele"); expect(card.shadowRoot!.querySelectorAll('.room-label[aria-pressed="true"]')).toHaveLength(1);
     expect(card.shadowRoot!.querySelector("aside h2")!.textContent).toBe("Diele"); expect(card.shadowRoot!.querySelector(".heat-value")!.textContent).toContain("613,5");
   });
@@ -63,16 +64,15 @@ describe("documented floorplan dashboard", () => {
   it("shows all three requested values per room and updates labels from HA without inventing current heat loads", async () => {
     const snapshot = empty(); snapshot.planning_bindings = { "5": ["sensor.room"] };
     const { card, hass } = await mount(snapshot, true, { "sensor.room": sensor("sensor.room") });
-    for (const shape of ["eg_wohnen", "eg_essen", "eg_kueche"]) {
-      const label = card.shadowRoot!.querySelector<HTMLButtonElement>(`[data-shape="${shape}"]`)!;
-      expect(label.querySelector(".room-readings")!.textContent).toBe("20,7 °C / 2.432,3 W / ?");
-      expect(label.getAttribute("aria-label")).toContain("Aktuelle Temperatur: 20,7 °C / Berechnete Heizlast: 2.432,3 W / Aktuelle Heizlast: ?");
-      expect(label.title).toContain("Aktuelle Heizlast: ?");
-    }
+    const label = card.shadowRoot!.querySelector<HTMLButtonElement>('[data-shape="eg_wohnen"]')!;
+    expect(label.querySelector(".room-readings")!.textContent).toBe("20,7 °C / 2.432,3 W / ?");
+    expect(label.getAttribute("aria-label")).toContain("Wohnen und Essen auswählen · Rechenzone 5");
+    expect(label.getAttribute("aria-label")).toContain("Aktuelle Temperatur: 20,7 °C / Berechnete Heizlast: 2.432,3 W / Aktuelle Heizlast: ?");
+    expect(label.title).toContain("Aktuelle Heizlast: ?");
     expect(card.shadowRoot!.querySelector('[data-shape="eg_diele"] .room-readings')!.textContent).toBe("? / 613,5 W / ?");
     expect(card.shadowRoot!.querySelector(".readings-legend")!.textContent).toContain("Aktuelle Temperatur / berechnete Heizlast / aktuelle Heizlast");
     card.hass = { ...hass, states: { "sensor.room": sensor("sensor.room", "22.4") } }; await settle(card);
-    expect(card.shadowRoot!.querySelector('[data-shape="eg_essen"] .room-readings')!.textContent).toBe("22,4 °C / 2.432,3 W / ?");
+    expect(card.shadowRoot!.querySelector('[data-shape="eg_wohnen"] .room-readings')!.textContent).toBe("22,4 °C / 2.432,3 W / ?");
   });
   it("shows multiple real sensor values individually and keeps the shared room summary unknown", async () => {
     const snapshot = empty(); snapshot.planning_bindings = { "5": ["sensor.first", "sensor.second"] };
@@ -80,25 +80,20 @@ describe("documented floorplan dashboard", () => {
     const { card } = await mount(snapshot, true, { "sensor.first": first, "sensor.second": second });
     expect([...card.shadowRoot!.querySelectorAll(".sensor-reading strong")].map((reading) => reading.textContent)).toEqual(["20 °C", "71,6 °F"]);
     expect(card.shadowRoot!.querySelector('[data-shape="eg_wohnen"] .room-readings')!.textContent).toBe("? / 2.432,3 W / ?");
-    expect(text(card)).toContain("keine gemeinsame Temperatur abgeleitet");
+    expect(text(card)).not.toContain("Planungswerte und Messwerte werden getrennt angezeigt. Bei mehreren Sensoren wird keine gemeinsame Temperatur abgeleitet.");
   });
-  it("fits complete label rows in fixed plan-coordinate boxes without viewport-dependent pixel sizes", async () => {
+  it("keeps complete values and accessible labels on both floors", async () => {
     const snapshot = empty(); snapshot.planning_bindings = { "4": ["sensor.room"] };
     const extreme = sensor("sensor.room", "123456789012345"); extreme.attributes.unit_of_measurement = "K";
     const { card } = await mount(snapshot, true, { "sensor.room": extreme });
+    const diele = card.shadowRoot!.querySelector<HTMLButtonElement>('[data-shape="eg_diele"]')!;
+    expect(diele.querySelector(".room-readings")!.textContent).toBe("123.456.789.012.345 K / 613,5 W / ?");
+    expect(diele.getAttribute("aria-label")).toContain("Aktuelle Temperatur: 123.456.789.012.345 K");
     for (const floor of ["Erdgeschoss", "Obergeschoss"]) {
       button(card, floor).click(); await settle(card);
-      for (const box of card.shadowRoot!.querySelectorAll("foreignObject.room-label-box")) {
-        const label = box.querySelector<HTMLButtonElement>("button")!;
-        const shape = planningData.shapes.find((shape) => shape.key === label.dataset.shape)!;
-        expect(Number(box.getAttribute("x"))).toBe(shape.center[0] - shape.label_box[0] / 2);
-        expect(Number(box.getAttribute("y"))).toBe(shape.center[1] - shape.label_box[1] / 2);
-        expect(Number(box.getAttribute("width"))).toBe(shape.label_box[0]); expect(Number(box.getAttribute("height"))).toBe(shape.label_box[1]);
-        expect(label.style.position).toBe("");
-        for (const row of label.querySelectorAll("text")) {
-          expect(Number(row.getAttribute("textLength"))).toBeLessThanOrEqual(shape.label_box[0] - 12);
-          expect(row.getAttribute("lengthAdjust")).toBe("spacingAndGlyphs");
-        }
+      for (const label of card.shadowRoot!.querySelectorAll<HTMLButtonElement>(".room-label")) {
+        expect(label.getAttribute("aria-label")).toContain(`${label.querySelector(".room-name")!.textContent} auswählen`);
+        expect(label.querySelector(".room-readings")!.textContent!.split(" / ")).toHaveLength(3);
       }
     }
   });
@@ -116,7 +111,7 @@ describe("documented floorplan dashboard", () => {
   it("persists real sensor assignments for fixed shared zones", async () => {
     const snapshot = empty();
     const { card, callWS } = await mount(snapshot, true, { "sensor.room": sensor("sensor.room"), "sensor.humidity": sensor("sensor.humidity", "55", "humidity") });
-    expect(card.shadowRoot!.querySelectorAll('input[type="checkbox"]')).toHaveLength(1); await check(card, true); await choose(card, "eg_essen");
+    expect(card.shadowRoot!.querySelectorAll('input[type="checkbox"]')).toHaveLength(1); await check(card, true); await choose(card, "eg_diele"); await choose(card, "eg_wohnen");
     expect(card.shadowRoot!.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true); button(card, "Zuordnungen speichern").click(); await settle(card);
     expect(callWS).toHaveBeenLastCalledWith({ type: "heizlast_ha/save_planning_bindings", revision: 4, bindings: { "5": ["sensor.room"] } });
     expect(text(card)).toContain("in Home Assistant gespeichert"); expect(text(card)).not.toContain("Ungespeicherte Sensorzuordnungen");

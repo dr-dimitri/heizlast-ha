@@ -32,7 +32,7 @@ describe("automatically registered fixed sidebar dashboard", () => {
     const { hass, callWS } = await mount(); const alias = document.createElement("heizlast-ha-card") as HeizlastHaCard;
     alias.setConfig({ type: "custom:heizlast-ha-card", title: "Heizlast" }); alias.hass = hass; document.body.append(alias); await settle(alias);
     expect(customElements.get("heizlast-ha-card")).toBe(HeizlastHaCard); expect(alias).toBeInstanceOf(HeizlastGrundrissCard);
-    expect(alias.shadowRoot!.querySelector("h1")!.textContent).toBe("Heizlast"); expect(alias.shadowRoot!.querySelectorAll(".room-label")).toHaveLength(7);
+    expect(alias.shadowRoot!.querySelector("h1")!.textContent).toBe("Heizlast"); expect(alias.shadowRoot!.querySelectorAll(".room-label")).toHaveLength(5);
     expect(alias.shadowRoot!.querySelectorAll(".zone-button")).toHaveLength(5); expect(alias.shadowRoot!.querySelector('input[type="file"],textarea,.editor')).toBeNull();
     expect(alias.shadowRoot!.textContent).not.toContain("Eigene Grundrisse"); expect(customElements.get("heizlast-ha-card-editor")).toBeUndefined();
     expect(callWS).toHaveBeenCalledTimes(2); expect(HeizlastHaCard.getStubConfig()).toEqual({ type: "custom:heizlast-ha-card" });

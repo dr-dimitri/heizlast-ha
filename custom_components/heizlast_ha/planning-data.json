@@ -57,7 +57,7 @@
     },
     {
       "id": 5,
-      "name": "Wohnen/Essen/Küche",
+      "name": "Wohnen und Essen",
       "floor": "EG",
       "area": 56.46,
       "temperature": 22.0,
@@ -327,11 +327,11 @@
     },
     {
       "key": "eg_wohnen",
-      "name": "Wohnen",
-      "short": "Wohnen",
+      "name": "Wohnen und Essen",
+      "short": "Wohnen und Essen",
       "floor": "EG",
       "zone": 5,
-      "area": 25.07,
+      "area": 56.46,
       "poly": [
         [
           15.579,
@@ -399,45 +399,11 @@
         ]
       ],
       "center": [
-        92.132,
-        375.503
+        220,
+        380
       ],
       "label_box": [
-        140,
-        30
-      ]
-    },
-    {
-      "key": "eg_essen",
-      "name": "Essen",
-      "short": "Essen",
-      "floor": "EG",
-      "zone": 5,
-      "area": 18.94,
-      "poly": null,
-      "center": [
-        226,
-        398.954
-      ],
-      "label_box": [
-        120,
-        30
-      ]
-    },
-    {
-      "key": "eg_kueche",
-      "name": "Küche",
-      "short": "Küche",
-      "floor": "EG",
-      "zone": 5,
-      "area": 12.45,
-      "poly": null,
-      "center": [
-        370.761,
-        415.706
-      ],
-      "label_box": [
-        96,
+        240,
         30
       ]
     },
