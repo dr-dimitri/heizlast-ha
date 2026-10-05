@@ -349,6 +349,161 @@ async def test_room_merge_preserves_removed_and_changed_temperature_sensors(
     assert fresh.snapshot() == saved["result"]
 
 
+def split_left_room(plan):
+    """Create the exact proof submitted by the shared room editor."""
+    result = deepcopy(plan)
+    room = result["floors"][0]["rooms"][0]
+    operation = {
+        "kind": "split",
+        "floor_id": "eg",
+        "source_room_id": "eg_links",
+        "created_room_id": "eg_neu",
+        "source_polygon": deepcopy(room["polygon"]),
+        "retained_polygon": [[0, 0], [50, 0], [50, 50], [0, 50]],
+        "created_polygon": [[0, 50], [50, 50], [50, 100], [0, 100]],
+    }
+    room.update(polygon=operation["retained_polygon"], area_m2=None)
+    result["floors"][0]["rooms"].append(
+        {
+            "id": "eg_neu",
+            "name": "Neu",
+            "polygon": operation["created_polygon"],
+            "area_m2": None,
+        }
+    )
+    return result, operation
+
+
+async def test_verified_split_preserves_historical_sensors_and_persistence(
+    hass, entry, hass_ws_client
+):
+    """Only verified source lineage can copy stale assignments to a new room."""
+    ws = await hass_ws_client(hass)
+    plan = standalone_plan()
+    for entity_id in ["sensor.deleted", "sensor.changed", "sensor.unrelated"]:
+        hass.states.async_set(entity_id, "21", {"device_class": "temperature"})
+    previous = {
+        "eg_links": ["sensor.deleted", "sensor.changed"],
+        "eg_rechts": ["sensor.unrelated"],
+    }
+    initial = await send(
+        ws, 2, "save_project", revision=0, plan=plan, bindings=previous
+    )
+    assert initial["success"]
+    hass.states.async_remove("sensor.deleted")
+    hass.states.async_remove("sensor.unrelated")
+    hass.states.async_set("sensor.changed", "45", {"device_class": "humidity"})
+    revised, operation = split_left_room(plan)
+    bindings = {**previous, "eg_neu": ["sensor.deleted", "sensor.changed"]}
+    unverified = await send(
+        ws, 3, "save_project", revision=1, plan=revised, bindings=bindings
+    )
+    assert unverified["error"]["code"] == "invalid_project"
+    unrelated = await send(
+        ws,
+        4,
+        "save_project",
+        revision=1,
+        plan=revised,
+        bindings={**bindings, "eg_neu": ["sensor.unrelated"]},
+        room_operations=[operation],
+    )
+    assert unrelated["error"]["code"] == "invalid_project"
+    tampered = deepcopy(operation)
+    tampered["created_polygon"][0][1] = 49
+    invalid = await send(
+        ws,
+        5,
+        "save_project",
+        revision=1,
+        plan=revised,
+        bindings=bindings,
+        room_operations=[tampered],
+    )
+    assert invalid["error"]["code"] == "invalid_project"
+    assert get_project(hass).snapshot() == initial["result"]
+    saved = await send(
+        ws,
+        6,
+        "save_project",
+        revision=1,
+        plan=revised,
+        bindings=bindings,
+        room_operations=[operation],
+    )
+    assert saved["success"]
+    expected = {"revision": 2, "plan": revised, "bindings": bindings}
+    assert saved["result"] == expected
+    assert (
+        json.loads(Path(hass.config.path(".storage", STORAGE_KEY)).read_text())["data"]
+        == expected
+    )
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    assert get_project(hass).snapshot() == expected
+    fresh = Project(hass)
+    await fresh.async_load()
+    assert fresh.snapshot() == expected
+
+
+async def test_split_then_merge_while_original_survives_retains_old_sensor(
+    hass, entry, hass_ws_client
+):
+    """A descendant can merge into another room without a blanket sensor exemption."""
+    ws = await hass_ws_client(hass)
+    plan = standalone_plan()
+    hass.states.async_set("sensor.deleted", "21", {"device_class": "temperature"})
+    assert (
+        await send(
+            ws,
+            2,
+            "save_project",
+            revision=0,
+            plan=plan,
+            bindings={"eg_links": ["sensor.deleted"]},
+        )
+    )["success"]
+    hass.states.async_remove("sensor.deleted")
+    revised, split = split_left_room(plan)
+    result = [[0, 50], [50, 50], [50, 0], [100, 0], [100, 100], [0, 100]]
+    merge = {
+        "kind": "merge",
+        "floor_id": "eg",
+        "source_room_ids": ["eg_rechts", "eg_neu"],
+        "source_polygons": [
+            plan["floors"][0]["rooms"][1]["polygon"],
+            split["created_polygon"],
+        ],
+        "result_polygon": result,
+    }
+    revised["floors"][0]["rooms"].pop()
+    revised["floors"][0]["rooms"][1]["polygon"] = result
+    saved = await send(
+        ws,
+        3,
+        "save_project",
+        revision=1,
+        plan=revised,
+        bindings={"eg_links": [], "eg_rechts": ["sensor.deleted"]},
+        room_operations=[split, merge],
+    )
+    assert saved["success"]
+    assert saved["result"]["bindings"] == {
+        "eg_links": [],
+        "eg_rechts": ["sensor.deleted"],
+    }
+    stale = await send(
+        ws,
+        4,
+        "save_project",
+        revision=1,
+        plan=revised,
+        bindings={},
+        room_operations=[split, merge],
+    )
+    assert stale["error"]["code"] == "conflict"
+    assert get_project(hass).snapshot() == saved["result"]
+
+
 async def test_concurrent_stale_saves_are_rejected(hass, entry):
     project = get_project(hass)
     plan = standalone_plan()

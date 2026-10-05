@@ -45,6 +45,7 @@ def ws_get_project(
         vol.Required("plan"): vol.Any(dict, None),
         vol.Required("bindings"): dict,
         vol.Optional("confirmed_removed_room_ids", default=list): [str],
+        vol.Optional("room_operations", default=list): [dict],
     }
 )
 @websocket_api.require_admin
@@ -61,6 +62,7 @@ async def ws_save_project(
             msg["plan"],
             msg["bindings"],
             msg["confirmed_removed_room_ids"],
+            msg["room_operations"],
         )
     except ProjectError as err:
         connection.send_error(msg["id"], err.code, str(err))
