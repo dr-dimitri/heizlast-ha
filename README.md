@@ -1,7 +1,7 @@
 # heizlast-ha
 
 Home-Assistant-Integration mit einer interaktiven digitalen Grundrisskarte.
-Version **0.13.0** öffnet den fest implementierten Grundriss direkt in der
+Version **0.14.0** öffnet den fest implementierten Grundriss direkt in der
 HA-Seitenleiste. Erdgeschoss und Obergeschoss zeigen die aus den Werkplänen
 übernommenen Raumkonturen und die belegten Normheizlasten von elf Rechenzonen.
 Räume lassen sich anklicken; rechts stehen Fläche, Auslegungstemperatur,
@@ -20,15 +20,17 @@ EnEV-Annahmen abgezogen. Das Ergebnis ist mit **≈** gekennzeichnet. Fehlende o
 Eine Heizungssteuerung ist nicht enthalten.
 
 Im zusätzlichen Tab **Simulation** lassen sich Vorlauf, gewünschte
-Innentemperatur, Außentemperatur und **sonnig/bewölkt** verändern. Live-Ansicht
-und Simulation verwenden denselben Grundriss und dieselben Planungsdaten.
+Innentemperatur, Außentemperatur, **Monat** und **sonnig/bewölkt** verändern. Die
+Simulation berücksichtigt den jahreszeitlichen Sonnenlauf und die Nachtstunden.
+Live-Ansicht und Simulation verwenden denselben Grundriss und dieselben Planungsdaten.
 
 Die Außentemperatur wird über Open-Meteo mit dem in Home Assistant eingestellten
 Standort abgefragt: beim Laden der Integration und anschließend alle **30 Minuten**.
 Bei Fehlern bleibt der letzte erfolgreiche Wert erhalten; nach weiteren
 30 Minuten wird erneut abgefragt. Vor dem ersten erfolgreichen Abruf steht **?**.
-Die Standortkoordinaten werden ausschließlich für diese HTTPS-Abfrage verwendet
-und nicht mit dem Dashboard ausgeliefert. Open-Meteo liefert Wettermodelldaten,
+Die Integration speichert oder veröffentlicht die Standortkoordinaten nicht.
+Die Simulation liest die Standortbreite aus der vorhandenen Home-Assistant-
+Konfiguration ausschließlich zur Laufzeit. Open-Meteo liefert Wettermodelldaten,
 keine lokale Sensormessung. Quelle: [Open-Meteo](https://open-meteo.com/).
 
 Derselbe Abruf liefert außerdem Globalstrahlung, direkte Normalstrahlung und
@@ -231,12 +233,15 @@ Dokumentation mit den maßgeblichen Quellen abgleichen, keine Datenkopie anlegen
 
 Der Tab **Simulation** vergleicht den Wärmebedarf mit der möglichen
 Fußbodenheizungsleistung bei einem gemeinsamen Raumtemperaturziel. Vorlauf,
-Innentemperatur und Außentemperatur sind veränderbar; **sonnig** und
-**bewölkt** wählen zwei einstellbare Strahlungsszenarien. Erdgeschoss,
-Obergeschoss und anklickbare Räume verwenden denselben Planrenderer wie
+Innentemperatur, Außentemperatur und Monat sind veränderbar; **sonnig** und
+**bewölkt** wählen zwei einstellbare Strahlungsszenarien. Der Startmonat ist
+Januar. Erdgeschoss, Obergeschoss und anklickbare Räume verwenden denselben Planrenderer wie
 **Live**. Pro Raum erscheinen Wärmebedarf, mögliche FBH-Leistung und
-Leistungsreserve beziehungsweise Defizit. Die Details zeigen zusätzlich
-solare Gewinne, aktive Heizfläche und angenäherte Bodenoberflächentemperatur.
+mittlere Leistungsreserve beziehungsweise Defizit. Wärmebedarf und solare
+Gewinne sind Mittelwerte über einen vollständigen Referenztag einschließlich
+Nacht. Die Details zeigen zusätzlich Solarüberschüsse, den größten Wärmebedarf
+und ein mögliches zeitweiliges Leistungsdefizit, aktive Heizfläche und
+angenäherte Bodenoberflächentemperatur bei möglicher FBH-Leistung.
 Eine positive Gesamtbilanz kann Defizite einzelner Räume nicht ausgleichen.
 
 Die Berechnung verwendet die vorhandenen Normheizlasten,
@@ -246,7 +251,7 @@ Simulationsdatensatz. Der dort ergänzte EnEV-Planungsansatz **35/28 °C**
 für Vorlauf/Rücklauf ist auf Seiten 8 und 10 belegt und liefert die
 Starttemperatur und 7 K Spreizung. Er ist keine aktuelle Anlagenmessung.
 
-Unter **Modellannahmen** sind die nicht belegten Startannahmen einstellbar:
+Unter **FBH-Annahmen einstellen** sind die nicht belegten Startannahmen einstellbar:
 80 % aktive Fußbodenfläche, 50 W/m² Referenzleistung bei zunächst
 35/28 °C und angenommenen 20 °C Raumtemperatur, Kennlinienexponent 1,1
 und 29 °C maximale Bodenoberfläche. Die Spreizung am Referenzpunkt ist
@@ -273,16 +278,48 @@ und der spezifische Durchfluss sind ausdrücklich vereinfachende
 Modellannahmen. Rohrabstand, Bodenbelag,
 Wassermenge und eine herstellerspezifische Auslegung liegen nicht vor.
 
-Die Wetterszenarien starten mit 700 W/m² direkter Normalstrahlung und
-100 W/m² diffuser Strahlung bei **sonnig**, beziehungsweise ohne direkte
-Strahlung und mit 150 W/m² diffuser Strahlung bei **bewölkt**. Sonnenhöhe
-45°, Sonnenrichtung Süd (180°) und 20 % Bodenreflexion sind ebenfalls
-einstellbare Szenarioannahmen. Daraus wird die Einstrahlung auf N/O/S/W
-berechnet und mit den gemeinsamen Raumfensterflächen und Solarfaktoren
-verknüpft. Diese Szenarien benötigen keine aktuellen Wetterwerte oder
-Temperatursensoren. Simulationsergebnisse sind mit **≈** gekennzeichnet.
+Die Monatsrechnung verwendet den 15. Tag des gewählten Monats in einem
+Nichtschaltjahr. Sonnenstand und Tageslänge folgen der Standortbreite und der
+Deklination nach den [NOAA-Solarformeln](https://gml.noaa.gov/grad/solcalc/solareqns.PDF).
+96 Zeitpunkte in der Mitte von 15-Minuten-Intervallen decken den vollständigen
+24-Stunden-Tag in Solarzeit ab. Eine geografische Länge oder Zeitzone ist für
+dieses volle Tagesintegral nicht erforderlich. Bei fehlender oder ungültiger
+Home-Assistant-Standortbreite ist eine ausdrückliche Szenarioeingabe erforderlich;
+ein Standort wird nicht stillschweigend angenommen. Die Breite bleibt im
+Arbeitsspeicher und wird weder gespeichert noch in den Planungsdatensatz kopiert.
 
-Die Simulation ist ein stationärer Leistungsvergleich, keine Prognose
+Die Wetterszenarien starten bei einer **Referenz-Sonnenhöhe von 45°** mit
+700 W/m² direkter Normalstrahlung und 100 W/m² diffuser Strahlung bei
+**sonnig**, beziehungsweise ohne direkte Strahlung und mit 150 W/m² diffuser
+Strahlung bei **bewölkt**. Diese einstellbaren Werte gelten nicht rund um die
+Uhr. Die Profilform folgt relativ zum Referenzpunkt der
+[Haurwitz-Beziehung für Globalstrahlung](https://pvlib-python.readthedocs.io/en/stable/reference/generated/pvlib.clearsky.haurwitz.html):
+Für `s = sin(Sonnenhöhe) > 0` und `s₀ = sin(45°)` ist die Dämpfung
+`a = exp(−0,059 × (1/s − 1/s₀))`. Direkte Normalstrahlung wird mit `a`,
+diffuse Strahlung mit `(s/s₀) × a` skaliert. Die Aufteilung in direkte und
+diffuse Strahlung und ihre Übertragung auf bewölktes Wetter sind eigene
+vereinfachende Annahmen; Haurwitz selbst liefert nur Globalstrahlung bei klarem
+Himmel. Unter dem Horizont sind sämtliche Strahlungswerte null.
+20 % Bodenreflexion bleiben eine einstellbare Annahme. Isotroper Himmel,
+Bodenreflexion und Direktstrahlung auf N/O/S/W werden zu jedem Zeitpunkt mit
+den gemeinsamen Raumfensterflächen und Solarfaktoren verknüpft.
+
+Der verbleibende Heizbedarf wird **je Zeitschritt** auf mindestens null
+begrenzt und anschließend gemittelt: `Mittel(max(0, Verlust − Solar))`.
+Ein mittäglicher Solarüberschuss wird separat als
+`Mittel(max(0, Solar − Verlust))` ausgewiesen und heizt ohne Speichermodell
+keine Nachtstunden. Deshalb gilt für die Tagesmittel
+`Bedarf = Verlust − solare Gewinne + Solarüberschuss`.
+Der größte zeitweilige Bedarf wird zusätzlich mit der möglichen FBH-Leistung
+verglichen. Die Kennzeichnung von Raumdefiziten verwendet diesen Vergleich,
+damit eine positive mittlere Bilanz einen nächtlichen Leistungsmangel nicht
+verdeckt. Es handelt sich um einen synthetischen sonnigen oder bewölkten Tag
+für den gewählten Monat, keinen Wetterbericht oder klimatologischen
+Monatsmittelwert. Die Außentemperatur bleibt die frei eingegebene, für den
+ganzen Tag konstante Szenariotemperatur. Aktuelle Wetterwerte oder
+Temperatursensoren sind nicht erforderlich. Ergebnisse sind mit **≈** gekennzeichnet.
+
+Die Simulation vergleicht eine Folge stationärer Zeitschritte, keine Prognose
 der Aufheizdauer oder der tatsächlichen Raumtemperatur. Die dargestellte
 Leistungsreserve bezeichnet verfügbare Heizkapazität, keinen gemessenen
 Verbrauch. Thermostatregelung, Wärmespeicherung, interne Gewinne und
@@ -307,9 +344,11 @@ import {
   defaultSimulationScenario, defaultSimulationParameters, simulateBuilding,
 } from "./simulation-core";
 
-const scenario = defaultSimulationScenario(planningData);
-const parameters = defaultSimulationParameters(planningData);
-const result = simulateBuilding(planningData, scenario, parameters);
+function runScenario(latitudeDeg: number) {
+  const scenario = defaultSimulationScenario(planningData);
+  const parameters = defaultSimulationParameters(planningData);
+  return simulateBuilding(planningData, scenario, parameters, { latitudeDeg });
+}
 ```
 
 Das Ergebnis enthält Raumwerte und Summen. Ungültige Eingaben liefern

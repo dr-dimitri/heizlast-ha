@@ -21,6 +21,7 @@ export interface HassState {
 }
 export interface HomeAssistant {
   states: Record<string, HassState>;
+  config?: { latitude?: number };
   user?: { is_admin: boolean };
   locale?: { language?: string };
   formatEntityName?(stateObj: HassState): string;

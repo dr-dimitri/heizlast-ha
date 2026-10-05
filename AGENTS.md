@@ -158,7 +158,7 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
 ### Versionierung und Paketinhalt
 
 - `VERSION` ist die zentrale Projektversion im Format `MAJOR.MINOR.PATCH`,
-  aktuell `0.13.0`. Für eine neue Implementierung die Version nach SemVer
+  aktuell `0.14.0`. Für eine neue Implementierung die Version nach SemVer
   erhöhen. Jeder Merge benötigt eine bisher unveröffentlichte Version für das
   verpflichtende HACS-Release; reine Dokumentationsänderungen erhöhen mindestens
   die Patch-Version. CI-Builds erhalten zusätzlich eine eindeutige Buildkennung.
@@ -315,6 +315,13 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   mögliche Heizleistung, Defizit/Leistungsreserve, solare Gewinne, aktive
   Heizfläche und Oberflächentemperatur; eine positive Gebäudebilanz darf
   Raumdefizite nicht als ausgeglichen darstellen.
+  Der Monat ist auswählbar; Januar ist der Startmonat. Wärmebedarf und solare
+  Gewinne sind 24-Stunden-Mittel eines synthetischen Referenztages. Farben
+  und Defizitzählung verwenden den größten zeitweiligen Raum-Leistungsmangel,
+  sodass eine mittlere Reserve keine nächtlichen Defizite verdeckt. Die Breite
+  kommt aus `hass.config.latitude` zur Laufzeit; fehlt sie, ist eine ausdrückliche
+  manuelle Szenarioeingabe erforderlich. Kein Standort wird erfunden oder
+  gespeichert. Änderungen an HA-Standortbreite invalidieren die Berechnung.
   Panel und alte Kartenkennung
   dürfen ausschließlich den festen Grundriss anzeigen und keine Möglichkeit
   zum Hinzufügen oder Importieren eines anderen Plans bieten.
@@ -356,14 +363,25 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   der Zieltemperatur, bei Vorlauf auf/unter Ziel wird keine Heizleistung
   behauptet. Eine geänderte Referenzspreizung verändert den angenommenen
   Referenzrücklauf; ihre Startwerte kommen aus den belegten Daten.
-  Sonnig/bewölkt verwenden
-  deklarierte einstellbare Strahlungs-/Sonnenstandsannahmen; alle dokumentierten
+  Sonnig/bewölkt verwenden deklarierte einstellbare Strahlungswerte bei 45°
+  Referenz-Sonnenhöhe. Monatsabhängige Sonnenstände folgen der NOAA-Deklination
+  am 15. Tag eines Nichtschaltjahres und einer ausdrücklich übergebenen
+  Standortbreite. 96 Mittelpunkte von 15-Minuten-Intervallen bilden den vollen
+  Solarzeittag ab. Die Haurwitz-relative Profilform skaliert DNI/DHI; deren
+  Zerlegung und das bewölkte Profil sind vereinfachende Annahmen, keine
+  klimatologischen Monatswerte. Unter dem Horizont sind alle Solarwerte null.
+  Bedarf wird je Zeitschritt auf null begrenzt und erst dann gemittelt;
+  ungenutzter Solarüberschuss bleibt separat, ohne Verrechnung gegen Nachtbedarf.
+  Raumspitzen und zeitgleiche Gebäudespitzen werden getrennt behandelt.
+  Alle dokumentierten
   Fenster- und Solarfaktoren kommen direkt aus der gemeinsamen Datenquelle.
   Keine Aufheizzeit, Raumtemperaturprognose oder reale Heizungssteuerung
   behaupten. Modellannahmen nicht als Mess- oder belegte Planungsdaten ausgeben.
   Tests prüfen Leistungs-/Temperaturabhängigkeit, Quelle und Immutabilität,
   Oberflächenlimit, Solarorientierung, invalidierte Szenarien, isolierte
-  Kernnutzung sowie Tab-/Geschosswechsel und fehlende HA-Verbindung.
+  Kernnutzung sowie Tab-/Geschosswechsel und fehlende HA-Verbindung. Monats-,
+  Standort-, Nacht-, Hemisphären- und Polartag-/Polarnachtfälle sowie die
+  zeitschrittweise Solarbilanz und zeitweilige Defizite werden zusätzlich geprüft.
 - `planning-data.json` enthält den einzigen implementierten Grundriss.
   Vereinfachte Konturen sind keine Vermessung; Flächen und Lasten stammen
   ausschließlich aus den neutral belegten Quelldokumenten. Gemeinsame

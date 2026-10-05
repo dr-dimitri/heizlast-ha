@@ -25,7 +25,7 @@ export const planningStyles = css`
   .metric strong small { font-size:14px; font-weight:400; color:var(--muted); }
   .metric p { font-size:11px; color:var(--muted); }
   .metric a { color:var(--accent); }
-  .simulation-metrics { grid-template-columns:repeat(4,minmax(0,1fr)); }
+  .simulation-metrics { grid-template-columns:repeat(5,minmax(0,1fr)); }
   .simulation-metrics .metric strong { font-size:22px; }
   .toolbar { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom:16px; }
   .floor-tabs { display:flex; background:var(--subtle); border:1px solid var(--line); border-radius:12px; padding:4px; gap:4px; }
@@ -66,10 +66,10 @@ export const planningStyles = css`
   .dot.deficit { background:var(--warning-color,#bc7424); border-color:var(--warning-color,#bc7424); }
   .scenario { padding:18px; margin:20px 0; border:1px solid var(--line); border-radius:14px; background:var(--subtle); }
   .scenario h2 { margin:0 0 8px; font-size:18px; }
-  .scenario-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; margin-top:14px; }
+  .scenario-grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:14px; margin-top:14px; }
   .scenario-grid label { display:flex; flex-direction:column; gap:7px; font-size:11px; color:var(--muted); }
   .scenario-grid input,.scenario-grid select { width:100%; min-width:0; border:1px solid var(--line); background:var(--surface); color:var(--primary-text-color); padding:10px; border-radius:8px; }
-  .scenario-grid input[aria-invalid=true] { border-color:var(--error-color,#db4437); }
+  .scenario-grid input[aria-invalid=true],.scenario-grid select[aria-invalid=true] { border-color:var(--error-color,#db4437); }
   .scenario-assumptions .scenario-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
   .scenario-errors { margin:14px 0 0; }
   .scenario-errors p { margin:0; }
