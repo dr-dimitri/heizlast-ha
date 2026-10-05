@@ -1,7 +1,5 @@
 pytest==9.0.3
 pytest-homeassistant-custom-component==0.13.367
 home-assistant-frontend==20260826.7
-jsonschema==4.26.0
-Pillow==12.3.0
 shapely==2.1.2
 ruff==0.16.10

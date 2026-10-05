@@ -3,12 +3,12 @@
     "step": {
       "user": {
         "title": "Set up Heizlast HA",
-        "description": "Create a persistent floor plan project. After setup, open Heizlast HA in the sidebar to upload a plan, generate an LLM prompt, and assign temperature sensors. The dashboard is provided automatically."
+        "description": "Set up the fixed ground-floor and upper-floor heat-load dashboard. After setup, open Heizlast HA in the sidebar to inspect the documented planning data and assign existing Home Assistant temperature sensors. The dashboard is provided automatically."
       }
     },
     "abort": {
       "already_configured": "Heizlast HA is already configured.",
-      "single_instance_allowed": "Only one Heizlast HA project is supported."
+      "single_instance_allowed": "Only one Heizlast HA integration is supported."
     }
   },
   "issues": {
@@ -18,7 +18,7 @@
         "step": {
           "confirm": {
             "title": "Reload the updated dashboard",
-            "description": "The Heizlast HA dashboard has changed in version {version}. Open dashboards may still use the previous card.\n\nReload every open Home Assistant dashboard in your browser (F5 or the reload button). In the companion app, close and reopen the dashboard; if it still shows the old card, reset the frontend cache in the app settings. Saved floor plans and sensor assignments are preserved.\n\nAfter reloading, return to this repair and confirm to dismiss the notice."
+            "description": "The Heizlast HA dashboard has changed in version {version}. Open dashboards may still use the previous card.\n\nReload every open Home Assistant dashboard in your browser (F5 or the reload button). In the companion app, close and reopen the dashboard; if it still shows the old card, reset the frontend cache in the app settings. Saved sensor assignments are preserved.\n\nAfter reloading, return to this repair and confirm to dismiss the notice."
           }
         },
         "abort": {

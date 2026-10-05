@@ -1,12 +1,12 @@
 /** Local preview only. Production receives authenticated Home Assistant state. */
 import "./card";
 import type { HeizlastHaPanel } from "./card";
-import { clone, type Floorplan, type HomeAssistant, type Project } from "./types";
+import { clone, type HomeAssistant, type Project } from "./types";
 
 if (!import.meta.env.DEV) throw new Error("Development preview must not run in production.");
-const storageKey = "heizlast-ha-local-preview-v3";
+const storageKey = "heizlast-ha-local-preview-v4";
 const params = new URLSearchParams(location.search);
-const newProject = (): Project => ({ revision: 0, plan: null, bindings: {}, planning_bindings: {} });
+const newProject = (): Project => ({ revision: 0, planning_bindings: {} });
 let project: Project;
 try { project = params.has("reset") ? newProject() : JSON.parse(localStorage.getItem(storageKey) ?? "null") ?? newProject(); }
 catch { project = newProject(); }
@@ -23,13 +23,6 @@ let hass: HomeAssistant = {
       const bindings = clone(message.bindings) as Record<string, string[]>;
       if (Object.values(bindings).some((ids) => ids.length)) throw { code: "invalid_bindings" };
       project = { ...project, revision: project.revision + 1, planning_bindings: bindings };
-    } else if (message.type === "heizlast_ha/save_project") {
-      const plan = clone(message.plan) as Floorplan | null, bindings = clone(message.bindings) as Record<string, string[]>;
-      const remaining = new Set(plan?.floors.flatMap((floor) => floor.rooms.map((room) => room.id)) ?? []);
-      const removed = project.plan?.floors.flatMap((floor) => floor.rooms.map((room) => room.id)).filter((id) => !remaining.has(id)) ?? [];
-      const confirmed = new Set(message.confirmed_removed_room_ids as string[] ?? []);
-      if (removed.some((id) => !confirmed.has(id))) throw { code: "confirmation_required", message: "Entfernte Raum-IDs bestätigen." };
-      project = { ...project, revision: project.revision + 1, plan, bindings };
     } else throw new Error("Unbekannte Vorschauanfrage.");
     persist(); return clone(project) as T;
   },

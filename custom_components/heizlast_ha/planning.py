@@ -1,12 +1,32 @@
 """Validate sensor assignments for the bundled residential calculation zones."""
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
-from .validation import ProjectError
+type JsonObject = dict[str, Any]
 
-# These IDs are stable calculation zones, independent of editable user plans.
+
+class ProjectError(ValueError):
+    """A user-correctable project error with a websocket error code."""
+
+    def __init__(self, message: str, code: str = "invalid_project") -> None:
+        """Initialize the error."""
+        super().__init__(message)
+        self.code = code
+
+
+def is_temperature_state(entity_id: str, state: Any) -> bool:
+    """Check a real Home Assistant state without depending on its concrete class."""
+    return (
+        entity_id.startswith("sensor.")
+        and state is not None
+        and isinstance(state.attributes, Mapping)
+        and state.attributes.get("device_class") == "temperature"
+    )
+
+
+# These IDs are the stable calculation zones of the fixed residential floor plan.
 PLANNING_ZONE_IDS = frozenset(str(zone_id) for zone_id in range(1, 12))
 SENSOR_ENTITY_ID = re.compile(r"sensor\.[a-z0-9_]+\Z")
 

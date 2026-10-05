@@ -14,10 +14,10 @@ from custom_components.heizlast_ha.api import get_project
 from custom_components.heizlast_ha.const import DOMAIN, STORAGE_KEY
 from custom_components.heizlast_ha.planning import (
     PLANNING_ZONE_IDS,
+    ProjectError,
     validate_planning_bindings,
 )
 from custom_components.heizlast_ha.project import Project
-from custom_components.heizlast_ha.validation import ProjectError
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations", "bundled_card")
 
@@ -44,8 +44,8 @@ async def entry(hass):
     return config_entry
 
 
-def editable_plan():
-    """Return a user-created plan independent of the bundled calculation zones."""
+def legacy_plan():
+    """Use neutral legacy data solely to prove it remains hidden and unchanged."""
     return {
         "schema_version": "1.1",
         "floors": [
@@ -112,53 +112,57 @@ def test_planning_validation_rejects_invalid_shapes_and_identifiers(bindings):
         validate_planning_bindings(bindings, {}, lambda _: True)
 
 
+@pytest.mark.parametrize("old_plan", [None, legacy_plan(), {"schema_version": "1.0"}])
 async def test_planning_save_preserves_user_plan_and_survives_reload(
-    hass, entry, hass_ws_client
+    hass, entry, hass_ws_client, old_plan
 ):
-    """Independent planning assignments neither seed nor overwrite user geometry."""
+    """Inactive old user data stays on disk and never becomes part of the API."""
     ws = await hass_ws_client(hass)
     initial = await send(ws, 1, "get_project")
-    assert initial["result"] == {"revision": 0, "plan": None, "bindings": {}}
-    for entity_id in ["sensor.user_room", "sensor.zone"]:
-        hass.states.async_set(entity_id, "21", {"device_class": "temperature"})
-    plan = editable_plan()
-    legacy = await send(
-        ws,
-        2,
-        "save_project",
-        revision=0,
-        plan=plan,
-        bindings={"room": ["sensor.user_room"]},
-    )
-    assert legacy["success"]
+    assert initial["result"] == {"revision": 0, "planning_bindings": {}}
+    hass.states.async_set("sensor.zone", "21", {"device_class": "temperature"})
+    old_data = {
+        "revision": 1,
+        "plan": old_plan,
+        "bindings": {"room": ["sensor.legacy_removed"]},
+        "legacy_metadata": {"retained": True},
+    }
+    await get_project(hass).store.async_save(old_data)
+    storage_path = Path(hass.config.path(".storage", STORAGE_KEY))
+    before = storage_path.read_bytes()
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    assert storage_path.read_bytes() == before
+    assert get_project(hass).snapshot() == {"revision": 1, "planning_bindings": {}}
     saved = await send(
         ws,
-        3,
+        2,
         "save_planning_bindings",
         revision=1,
         bindings={"1": ["sensor.zone"]},
     )
     expected = {
         "revision": 2,
-        "plan": plan,
-        "bindings": {"room": ["sensor.user_room"]},
         "planning_bindings": {"1": ["sensor.zone"]},
     }
     assert saved["result"] == expected
-    stored = json.loads(Path(hass.config.path(".storage", STORAGE_KEY)).read_text())
-    assert stored["data"] == expected
+    stored = json.loads(storage_path.read_text())
+    assert stored["data"] == {**old_data, **expected}
     assert await hass.config_entries.async_reload(entry.entry_id)
     assert get_project(hass).snapshot() == expected
     fresh = Project(hass)
     await fresh.async_load()
     assert fresh.snapshot() == expected
 
-    plan["floors"][0]["name"] = "Geänderte Etage"
-    changed = await send(ws, 4, "save_project", revision=2, plan=plan, bindings={})
+    changed = await send(
+        ws, 3, "save_planning_bindings", revision=2, bindings={"1": []}
+    )
     assert changed["success"]
-    assert changed["result"]["planning_bindings"] == {"1": ["sensor.zone"]}
-    assert changed["result"]["bindings"] == expected["bindings"]
+    assert changed["result"]["planning_bindings"] == {"1": []}
     assert changed["result"]["revision"] == 3
+    assert json.loads(storage_path.read_text())["data"] == {
+        **old_data,
+        **changed["result"],
+    }
     fresh = Project(hass)
     await fresh.async_load()
     assert fresh.snapshot() == changed["result"]
@@ -178,10 +182,10 @@ async def test_planning_assignments_without_user_plan_never_create_geometry(
     )
     assert saved["result"] == {
         "revision": 1,
-        "plan": None,
-        "bindings": {},
         "planning_bindings": {"11": ["sensor.zone"]},
     }
+    stored = json.loads(Path(hass.config.path(".storage", STORAGE_KEY)).read_text())
+    assert stored["data"] == saved["result"]
 
 
 async def test_planning_sensors_validate_additions_and_keep_historical_assignments(
@@ -253,11 +257,11 @@ async def test_planning_websocket_is_admin_only_but_snapshot_is_readable(
     assert not Path(hass.config.path(".storage", STORAGE_KEY)).exists()
 
 
-async def test_generic_and_planning_saves_share_optimistic_revision(hass, entry):
-    """Simultaneous editing surfaces cannot silently overwrite each other."""
+async def test_concurrent_planning_saves_share_optimistic_revision(hass, entry):
+    """Simultaneous sensor edits cannot silently overwrite each other."""
     project = get_project(hass)
     results = await asyncio.gather(
-        project.async_save(0, editable_plan(), {}, []),
+        project.async_save_planning_bindings(0, {"2": []}),
         project.async_save_planning_bindings(0, {"1": []}),
         return_exceptions=True,
     )
@@ -299,7 +303,7 @@ async def test_planning_write_failure_does_not_publish_a_new_revision(
 async def test_corrupt_planning_storage_is_rejected_without_reset(
     hass, entry, bindings
 ):
-    """Invalid optional data must never be treated as an empty editable project."""
+    """Invalid optional data must never be treated as empty sensor assignments."""
     project = get_project(hass)
     stored = {**project.snapshot(), "planning_bindings": bindings}
     await project.store.async_save(stored)
@@ -318,3 +322,29 @@ async def test_unloaded_planning_endpoint_refuses_mutation(hass, entry, hass_ws_
         ws, 1, "save_planning_bindings", revision=0, bindings={"1": []}
     )
     assert rejected["error"]["code"] == "not_loaded"
+
+
+@pytest.mark.parametrize(
+    "stored",
+    [
+        False,
+        [],
+        {"revision": True, "planning_bindings": {}},
+        {"revision": -1, "planning_bindings": {}},
+        {"revision": 0},
+        {"revision": 0, "plan": None},
+        {"revision": 0, "bindings": {}},
+        {"revision": 0, "plan": [], "bindings": {}},
+        {"revision": 0, "plan": None, "bindings": []},
+    ],
+)
+async def test_corrupt_storage_header_does_not_reset_user_data(hass, entry, stored):
+    """Reject corrupt envelopes before accepting mutations or rewriting storage."""
+    project = get_project(hass)
+    await project.store.async_save(stored)
+    storage_path = Path(hass.config.path(".storage", STORAGE_KEY))
+    before = storage_path.read_bytes()
+    fresh = Project(hass)
+    with pytest.raises(ProjectError):
+        await fresh.async_load()
+    assert storage_path.read_bytes() == before

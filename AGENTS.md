@@ -6,6 +6,9 @@ Diese Vorgaben gelten für das gesamte Repository.
 
 - Der ausgewählte Entwurf ist das **Grundrissmodell** mit getrennten Ansichten
   für Erdgeschoss und Obergeschoss sowie anklickbaren Räumen.
+- Es gibt ausschließlich diesen einen fest implementierten Grundriss. Keine
+  Neuanlage, kein Import und keine Geometriebearbeitung für eigene Grundrisse
+  anbieten. Nur Sensorzuordnungen der elf festen Rechenzonen sind veränderbar.
 - Dargestellt wird ausschließlich das beheizte Wohnhaus. Spitzboden,
   Technikraum, Gerätelager und Garage bleiben außerhalb des Dashboards.
 
@@ -100,9 +103,9 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
    CI-Grundlage genannte `9.1.1` ist mit dieser Abhängigkeitskombination nicht
    gemeinsam installierbar. Deshalb bleibt die vorhandene kompatible Version
    verbindlich, bis die Home-Assistant-Testfixtures gemeinsam aktualisiert werden.
-   Für Schema-, Bild- und Geometrieprüfungen
-   werden `jsonschema==4.26.0`, `Pillow==12.3.0` und `shapely==2.1.2`
-   installiert. Den Dokumentationsabgleich ausführen,
+   Für die fachlichen Tests der festen Raumkonturen wird
+   `shapely==2.1.2` installiert. `jsonschema` und `Pillow` werden nicht mehr
+   als eigene CI-Werkzeuge benötigt; Import- und Beispielbildprüfungen entfallen. Den Dokumentationsabgleich ausführen,
    Workflows mit Actionlint 1.7.12 validieren, `python -m ruff check .`,
    `python -m ruff format --check .` und `python -m pytest` ausführen.
    Ruff und Pytest werden über `pyproject.toml` konfiguriert.
@@ -134,7 +137,7 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
 ### Versionierung und Paketinhalt
 
 - `VERSION` ist die zentrale Projektversion im Format `MAJOR.MINOR.PATCH`,
-  aktuell `0.9.0`. Für eine neue Implementierung die Version nach SemVer
+  aktuell `0.10.0`. Für eine neue Implementierung die Version nach SemVer
   erhöhen. Jeder Merge benötigt eine bisher unveröffentlichte Version für das
   verpflichtende HACS-Release; reine Dokumentationsänderungen erhöhen mindestens
   die Patch-Version. CI-Builds erhalten zusätzlich eine eindeutige Buildkennung.
@@ -153,7 +156,9 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   `hide_default_branch: true` und die Mindestversion Home Assistant `2026.9.4`.
   Die HACS-Konfigurationsdatei muss versioniert sein; der Build prüft dies.
   Das ZIP enthält direkt die Dateien des Integrationsordners, einschließlich
-  `www/heizlast-ha-card.js`, gemeinsamer Schema-Datei und `brand/icon.png`.
+  `www/heizlast-ha-card.js`, `planning-data.json` und `brand/icon.png`.
+  Die Integration hat keine externen Python-Laufzeitabhängigkeiten;
+  Geometrievalidierung mit Shapely erfolgt ausschließlich in fachlichen Tests.
   Der Build kopiert die Karte auch in den ignorierten lokalen Ordner
   `custom_components/heizlast_ha/www/`; dort dürfen keine Benutzerdaten liegen.
   Diese Ausgaben werden beim Build neu erzeugt. Die Integration registriert
@@ -181,97 +186,69 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   Dateien ab. Der Datensatz enthält ausschließlich anonymisierte fachliche
   Planungswerte, Konturen und neutrale Quellenbelege; er wird in das
   Integrationsarchiv aufgenommen und vom Frontend im Kartenmodul gebündelt.
-- Das Seitenleisten-Panel öffnet standardmäßig die neue Karte
-  `heizlast-grundriss-card` mit Erdgeschoss/Obergeschoss und elf Rechenzonen.
-  Die bisherige Karte `heizlast-ha-card` bleibt unter **Eigene Grundrisse**
-  und für bestehende Lovelace-Konfigurationen erreichbar. Ihr Grundriss und
-  ihre Sensorzuordnungen werden nicht durch den mitgelieferten Plan ersetzt.
-  Zusätzliche optionale `planning_bindings` werden separat im Projekt gespeichert.
-  `heizlast_ha/save_planning_bindings` erfordert Administratorrechte und dieselbe
-  optimistische Projekt-Revision wie die bestehenden Speicherbefehle. Neue
-  Zuordnungen müssen echte Temperatursensoren sein; historische Zuordnungen
-  bleiben lesbar. Normheizlasten und Auslegungstemperaturen sind ausschließlich
-  Planungsdaten; aktuelle Werte werden nur aus Home Assistants Zustand gelesen.
+- Das Seitenleisten-Panel zeigt ausschließlich `heizlast-grundriss-card`
+  mit Erdgeschoss/Obergeschoss und elf festen Rechenzonen. Es enthält keine
+  Navigation zu eigenen Grundrissen, keinen Import, LLM-Prompt oder Editor.
+  Die frühere Lovelace-Kennung `heizlast-ha-card` ist ein Alias für denselben
+  festen Grundriss. Das Frontend bündelt keine Import-/Editor-Module oder
+  zugehörige Bibliotheken mehr.
+- Der authentifizierte Leseendpunkt `heizlast_ha/get_project` liefert nur
+  `revision` und `planning_bindings`. `heizlast_ha/save_planning_bindings`
+  erfordert Administratorrechte und eine aktuelle optimistische Projekt-Revision.
+  Änderungen sind auf Sensorzuordnungen der elf festen Rechenzonen begrenzt.
+  Neue Zuordnungen müssen echte Temperatursensoren sein; historische
+  Zuordnungen bleiben lesbar. `heizlast_ha/save_project` wird nicht registriert;
+  eigene Raumgeometrie lässt sich auch über die API nicht mehr hinzufügen.
+- Sensorzuordnungen werden dauerhaft in Home Assistant gespeichert. Vorhandene
+  eigene Pläne und deren alte Sensorzuordnungen bleiben bei Updates intern
+  unverändert als ungenutzte Altdaten erhalten, werden aber nicht an das
+  Dashboard geliefert. Die Integration schreibt keine neuen Benutzerpläne.
+  Normheizlasten und Auslegungstemperaturen sind ausschließlich Planungsdaten;
+  aktuelle Werte werden nur aus Home Assistants Zustand gelesen.
 - Das Projekt enthält die Integration `custom_components/heizlast_ha/` und
-  die Dashboard-Karte unter `frontend/`. Beide Komponenten sind damit in der
-  CI verpflichtend; Hassfest und Frontend-Prüfungen dürfen für vorhandenen Code
-  nicht übersprungen werden. Das Archiv enthält die Integration und die
-  kompilierte Karte für die manuelle Home-Assistant-Installation.
-- Die Tests unter `tests/` prüfen Archivinhalt, Versionsfehler,
-  erforderliche Frontend-Ausgaben, Dokumentationsabgleich, Schemakonsistenz,
-  Beispielgrundriss und die echte Home-Assistant-Integration einschließlich
-  Speicherung ohne Bildverwaltung, WebSocket-API und Konfigurationsfluss. Pytest nutzt
+  die Dashboard-Karte unter `frontend/`. Hassfest und Frontend-Prüfungen sind
+  für den vorhandenen Code verpflichtend. Das Archiv enthält die Integration
+  und die kompilierte Karte für die manuelle Home-Assistant-Installation.
+- Tests prüfen Paketvollständigkeit, Versionen, Buildherkunft,
+  Dokumentationsabgleich sowie Home Assistants echte Konfigurations-,
+  WebSocket-, Speicher-, Panel- und Reparaturfunktionen. Python-Tests nutzen
   `asyncio_mode = "auto"` und einen Funktions-Scope für asynchrone Fixtures.
-- HACS-Tests prüfen das direkt installierbare ZIP, Paketvollständigkeit und
-  Releaseherkunft. Frontend-Integrationstests prüfen statischen Modulzugriff,
-  automatisches Laden, Entladen/Neuladen und einen fehlenden Kartenbuild.
-  Sie prüfen außerdem Seitenleiste, Verknüpfung mit der Integration,
-  Dashboard-Pfadkonflikte und Entfernung des eigenen Panels. Frontendtests prüfen
-  den direkten Einstieg in die Einrichtung, Prompt ohne Bild-Upload, eigenständige
-  Raumdarstellung, mobile Navigation, Zustandsupdates
-  und den Lesezugriff normaler Benutzer im Seitenleisten-Dashboard.
-  Raumtests prüfen Verbinden an gemeinsamen Grenzen und schmalen Wandabständen,
-  Erhalt konkaver Konturen und Beschriftung innerhalb der Raumfläche,
-  Sensorübernahme ohne Duplikate, Löschung bis zur leeren
-  Etage, Verwerfen der Vorschau, Bestätigung entfallender IDs und die Ablehnung
-  unzulässiger Verbindungen. Backendtests prüfen die dauerhafte Speicherung
-  leerer Etagen und die Übernahme bisheriger Sensoren entfallender Raum-IDs,
-  auch wenn deren Entitäten entfernt wurden oder ihre Geräteklasse geändert ist.
-  Editortests prüfen den gemeinsamen Prozess für Neuanlage und Import,
-  Rechteck-/Polygonzeichnung einschließlich Touch-Eingaben, Geschossverwaltung,
-  Raumteilung, bewusste Sensorverteilung, Rückgängig/Wiederholen und ungültige
-  Änderungen. Backendtests prüfen geometrische Teilungs-/Verbindungsnachweise,
-  historische Sensorherkunft, zusammengesetzte Bearbeitungen und Wiederladen.
+  Import-, Editor-, Prompt-, Raumteilungs- und Raumverbindungstests entfallen
+  gemeinsam mit den entfernten Funktionen.
+- Fachliche Tests prüfen gemeinsame Rechenzonen, Flächen-/Lastsummen,
+  gültige Konturen, Bad-Zuordnung mit unbekannter Planfläche und den Ausschluss
+  unbeheizter Gebäudeteile. Backendtests prüfen separate Sensorzuordnungen,
+  Benutzerrechte, dauerhafte Speicherung, Wiederladen, Konflikte, Speicherfehler,
+  nicht verfügbare Sensoren und den unveränderten Erhalt ungenutzter Altdaten.
+  Die frühere Geometrie-Speicheranfrage muss als unbekannter Befehl scheitern.
+- Frontendtests prüfen Geschoss-/Raumauswahl, gemeinsame Lasten, Bad-Warnhinweis,
+  echte Sensorzustände, fehlende Messwerte, Lesezugriff, Speicherfehler,
+  Konfliktbehandlung und mobile Navigation. Panel und alte Kartenkennung
+  dürfen ausschließlich den festen Grundriss anzeigen und keine Möglichkeit
+  zum Hinzufügen oder Importieren eines anderen Plans bieten.
+- Integrationstests prüfen automatisches Laden und Entladen der gebündelten
+  Karte, die Seitenleiste, Verknüpfung mit der Integration und Pfadkonflikte.
   Reparaturtests prüfen Erstinstallation, Kartenänderungen, Bestätigung,
   Neustart, veraltete Dialoge, Bereinigung und deutsche/englische Übersetzungen
   mit Home Assistants echtem Reparaturmanager.
-- Neue Planungsdaten-Tests prüfen gemeinsame Rechenzonen, Flächen-/Lastsummen,
-  gültige Konturen, Bad-Zuordnung mit unbekannter Planfläche und den Ausschluss
-  unbeheizter Gebäudeteile. HACS-Tests prüfen die neuen Pflichtdateien und
-  neutrale Quellenbelege. Backendtests prüfen separate Sensorzuordnungen,
-  Benutzerrechte, dauerhafte Speicherung, Wiederladen, Konflikte und den
-  gegenseitigen Erhalt eigener Benutzerpläne und Planungszuordnungen.
-  Frontendtests prüfen Geschoss-/Raumauswahl, gemeinsame Lasten, Bad-Warnhinweis,
-  echte Sensorzustände, fehlende Messwerte und den Wechsel zum bestehenden Editor.
 - Die Frontend-Prüfungen führen den TypeScript-Compiler ohne Ausgabe aus.
-  Vitest prüft unter anderem Schema-/Geometrievalidierung, Prompt und
+  Vitest prüft den festen Grundriss, Sensorzuordnung und
   Kartennutzung; Vite bündelt die Karte als eigenständiges JavaScript-Modul
   `frontend/dist/heizlast-ha-card.js`. Abhängigkeiten und Lockfile liegen im
   Frontendordner; der lokale Entwicklungsadapter wird nicht in die Karte
   gebündelt.
 
-### Gemeinsamer Formatvertrag
+### Fester Grundriss und Quelldaten
 
-- `schemas/floorplan-v1.schema.json` ist die verbindliche Formatdefinition für
-  Import und LLM-Prompt. Ihre Kopie unter
-  `custom_components/heizlast_ha/floorplan-v1.schema.json` muss bytegleich sein;
-  der Schematest erzwingt dies. Änderungen immer gemeinsam durchführen und
-  Schema-Version sowie bestehende Daten berücksichtigen.
-- Das Format `schema_version: "1.1"` enthält ausschließlich Etagen, eine
-  eigenständige Zeichenfläche und Raumkonturen mit Namen, IDs und Flächenangaben.
-  Leere Raumlisten sind für Etagen nach Raumlöschungen erlaubt; diese Erweiterung
-  bleibt mit bestehenden Daten der Schema-Version `1.1` kompatibel. Verbundene
-  Räume behalten die ID und den Namen des ausgewählten Raums, übernehmen die
-  Sensorzuordnungen beider Räume und addieren ausschließlich bekannte Flächen.
-  Der Zeicheneditor legt Geschosse und Räume manuell oder aus importiertem JSON
-  im selben fünfstufigen Prozess an. Raumteilungen erhalten standardmäßig die
-  ID des größeren Teils; beide Teilflächen bleiben bis zur Bestätigung `null`.
-  Rückgängig/Wiederholen umfasst Geometrie, Zuordnungen und Bearbeitungsnachweise.
-  Optionales `room_operations` in der Speicheranfrage enthält geprüfte Teilungen
-  und Verbindungen; es verfolgt historische Sensorherkunft auch bei weiterhin
-  vorhandener Ursprungs-ID und wird nicht gespeichert. Höchstens 1000 Nachweise
-  und 25000 Nachweispunkte sind zulässig. Neue Sensoren müssen weiterhin echte
-  Temperatursensoren sein. Das letzte gelöschte Geschoss setzt `plan` auf `null`.
-  Das frühere bildbasierte Format `1.0` und das Feld `background` entfallen;
-  bestehende bildbasierte Pläne müssen nicht migriert werden.
-- Die Einrichtung erzeugt nur den LLM-Prompt. Private Originaldokumente bleiben
-  lokal; bei einem externen LLM darf nur vollständig anonymisiertes Material
-  verwendet werden. Die Integration speichert ausschließlich Grundriss-JSON
-  und Sensorzuordnungen in Home Assistant. Bild-Upload, Bildendpunkt und
-  Bildspeicherung entfallen. Anzeige und Korrekturen benötigen kein Originalbild.
-  Der Frontend-Entwicklungsadapter darf ausschließlich für lokale Vorschau und
-  Tests verwendet werden. Administratorrechte sind für JSON-Import und
-  Konfigurationsänderungen erforderlich.
+- `planning-data.json` enthält den einzigen implementierten Grundriss.
+  Vereinfachte Konturen sind keine Vermessung; Flächen und Lasten stammen
+  ausschließlich aus den neutral belegten Quelldokumenten. Gemeinsame
+  Rechenzonen bleiben gemeinsam und die unbestätigte Bad-Zuordnung sichtbar.
+- Originaldokumente und persönliche Angaben bleiben außerhalb des Repositorys.
+  Es gibt keine Bild-Uploads, externen LLM-Anfragen oder Bildspeicherung.
+  `examples/`, das frühere Import-Schema und generische Geometrie-Werkzeuge
+  werden nicht mehr ausgeliefert. Der lokale Entwicklungsadapter dient nur
+  zur Vorschau des festen Plans ohne simulierte Sensorwerte.
 
 ### HACS-Releases
 

@@ -80,7 +80,6 @@ def test_hacs_installation_includes_card_and_only_integration_files(
             "__init__.py",
             "www/heizlast-ha-card.js",
             "brand/icon.png",
-            "floorplan-v1.schema.json",
             "planning.py",
             "planning-data.json",
         } <= names
@@ -89,6 +88,7 @@ def test_hacs_installation_includes_card_and_only_integration_files(
             for name in names
         )
         assert not any("__pycache__" in name for name in names)
+        assert not {"validation.py", "floorplan-v1.schema.json"}.intersection(names)
         planning = bundle.read("planning-data.json")
         assert (
             planning

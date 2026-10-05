@@ -4,7 +4,7 @@ import { planningData } from "../src/planning-types";
 import { clone, type HassState, type HomeAssistant, type Project } from "../src/types";
 
 const sensor = (id: string, value = "20.7", deviceClass = "temperature"): HassState => ({ entity_id: id, state: value, attributes: { device_class: deviceClass, unit_of_measurement: deviceClass === "temperature" ? "°C" : "%", friendly_name: "Raumsensor" } });
-const empty = (): Project => ({ revision: 4, plan: null, bindings: {}, planning_bindings: {} });
+const empty = (): Project => ({ revision: 4, planning_bindings: {} });
 const text = (card: HeizlastGrundrissCard) => card.shadowRoot!.textContent!;
 async function settle(card: HeizlastGrundrissCard) { await card.updateComplete; await new Promise((resolve) => setTimeout(resolve, 0)); await card.updateComplete; }
 async function mount(snapshot = empty(), admin = true, states: Record<string, HassState> = {}) {
@@ -58,14 +58,13 @@ describe("documented floorplan dashboard", () => {
     expect(card.shadowRoot!.querySelector(".sensor-reading strong")!.textContent).toBe("Kein Temperatursensor mehr"); expect(text(card)).not.toContain("65 %");
     card.hass = { ...hass, states: {} }; await settle(card); expect(card.shadowRoot!.querySelector(".sensor-reading strong")!.textContent).toBe("Entität entfernt");
   });
-  it("persists real sensor assignments for shared zones while retaining the generic project", async () => {
-    const snapshot = empty(); snapshot.plan = { schema_version: "1.1", floors: [{ id: "f", name: "Etage", canvas: { width: 100, height: 100 }, rooms: [] }] }; snapshot.bindings = { old: ["sensor.old"] };
+  it("persists real sensor assignments for fixed shared zones", async () => {
+    const snapshot = empty();
     const { card, callWS } = await mount(snapshot, true, { "sensor.room": sensor("sensor.room"), "sensor.humidity": sensor("sensor.humidity", "55", "humidity") });
     expect(card.shadowRoot!.querySelectorAll('input[type="checkbox"]')).toHaveLength(1); await check(card, true); await choose(card, "eg_essen");
     expect(card.shadowRoot!.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true); button(card, "Zuordnungen speichern").click(); await settle(card);
     expect(callWS).toHaveBeenLastCalledWith({ type: "heizlast_ha/save_planning_bindings", revision: 4, bindings: { "5": ["sensor.room"] } });
     expect(text(card)).toContain("in Home Assistant gespeichert"); expect(text(card)).not.toContain("Ungespeicherte Sensorzuordnungen");
-    expect(snapshot.plan.floors[0].id).toBe("f"); expect(snapshot.bindings.old).toEqual(["sensor.old"]);
     await check(card, false); button(card, "Zuordnungen speichern").click(); await settle(card);
     expect(callWS).toHaveBeenLastCalledWith({ type: "heizlast_ha/save_planning_bindings", revision: 5, bindings: { "5": [] } });
   });

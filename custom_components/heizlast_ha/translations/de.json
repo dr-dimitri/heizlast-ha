@@ -3,12 +3,12 @@
     "step": {
       "user": {
         "title": "Heizlast HA einrichten",
-        "description": "Ein dauerhaft gespeichertes Grundrissprojekt erstellen. Anschließend Heizlast HA in der Seitenleiste öffnen, einen Plan hochladen, den LLM-Prompt erstellen und Temperatursensoren zuordnen. Das Dashboard wird automatisch bereitgestellt."
+        "description": "Das feste Heizlast-Dashboard für Erdgeschoss und Obergeschoss einrichten. Anschließend Heizlast HA in der Seitenleiste öffnen, belegte Planungsdaten ansehen und vorhandene Home-Assistant-Temperatursensoren zuordnen. Das Dashboard wird automatisch bereitgestellt."
       }
     },
     "abort": {
       "already_configured": "Heizlast HA ist bereits eingerichtet.",
-      "single_instance_allowed": "Es wird nur ein Heizlast-HA-Projekt unterstützt."
+      "single_instance_allowed": "Es wird nur eine Heizlast-HA-Integration unterstützt."
     }
   },
   "issues": {
@@ -18,7 +18,7 @@
         "step": {
           "confirm": {
             "title": "Aktualisiertes Dashboard neu laden",
-            "description": "Das Heizlast-HA-Dashboard hat sich mit Version {version} geändert. Geöffnete Dashboards können noch die bisherige Karte verwenden.\n\nLade alle geöffneten Home-Assistant-Dashboards im Browser neu (F5 oder die Schaltfläche zum Neuladen). In der Companion-App das Dashboard schließen und erneut öffnen; wird weiterhin die alte Karte angezeigt, den Frontend-Cache in den App-Einstellungen zurücksetzen. Gespeicherte Grundrisse und Sensorzuordnungen bleiben erhalten.\n\nKehre nach dem Neuladen zu dieser Reparatur zurück und bestätige, um die Meldung zu schließen."
+            "description": "Das Heizlast-HA-Dashboard hat sich mit Version {version} geändert. Geöffnete Dashboards können noch die bisherige Karte verwenden.\n\nLade alle geöffneten Home-Assistant-Dashboards im Browser neu (F5 oder die Schaltfläche zum Neuladen). In der Companion-App das Dashboard schließen und erneut öffnen; wird weiterhin die alte Karte angezeigt, den Frontend-Cache in den App-Einstellungen zurücksetzen. Gespeicherte Sensorzuordnungen bleiben erhalten.\n\nKehre nach dem Neuladen zu dieser Reparatur zurück und bestätige, um die Meldung zu schließen."
           }
         },
         "abort": {

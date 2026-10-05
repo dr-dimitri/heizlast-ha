@@ -1,22 +1,22 @@
 # heizlast-ha
 
 Home-Assistant-Integration mit einer interaktiven digitalen Grundrisskarte.
-Version **0.9.0** öffnet das ausgewählte Grundriss-Dashboard direkt in der
+Version **0.10.0** öffnet den fest implementierten Grundriss direkt in der
 HA-Seitenleiste. Erdgeschoss und Obergeschoss zeigen die aus den Werkplänen
 übernommenen Raumkonturen und die belegten Normheizlasten von elf Rechenzonen.
 Räume lassen sich anklicken; rechts stehen Fläche, Auslegungstemperatur,
 Wärmeverluste, Quellenbelege und vorhandene Temperatursensoren.
 Spitzboden und Nebengebäude gehören nicht zur Darstellung.
 
-Die Integration speichert Grundriss-JSON und Sensorzuordnungen in Home Assistant.
+Die Integration speichert die Sensorzuordnungen in Home Assistant.
 Temperaturwerte kommen direkt von den vorhandenen Sensoren. Dokumentierte
 Normheizlasten sind Planungsdaten, keine aktuellen Messwerte. Ohne Sensorzuordnung
 werden keine Raumtemperaturen vorgetäuscht. Eine Berechnung des aktuellen
 Wärmebedarfs und eine Heizungssteuerung sind nicht enthalten.
 
-Unter **Eigene Grundrisse** bleibt der vorhandene Zeicheneditor mit Neuanlage,
-JSON-Import, Raumteilung und Sensorzuordnung verfügbar. Bestehende Benutzerpläne
-werden beim Update erhalten und nicht durch den mitgelieferten Grundriss ersetzt.
+Die Integration stellt ausschließlich diesen EG-/OG-Grundriss bereit.
+Raumkonturen und Rechenzonen sind fest hinterlegt. Das Hinzufügen, Importieren
+oder Bearbeiten eigener Grundrisse ist nicht vorgesehen.
 
 ## Installation über HACS
 
@@ -30,8 +30,7 @@ Heizlast HA wird als **benutzerdefiniertes Repository** installiert:
 4. Home Assistant neu starten. Unter **Einstellungen → Geräte & Dienste →
    Integration hinzufügen** nach **Heizlast HA** suchen und hinzufügen.
 5. Die Browserseite neu laden und links **Heizlast HA** öffnen. Das Dashboard
-   zeigt direkt den mitgelieferten Grundriss mit Geschossauswahl. Unter
-   **Eigene Grundrisse** sind Neuanlage und JSON-Import erreichbar. Es ist auch über den
+   zeigt direkt den festen Grundriss mit Geschossauswahl. Es ist auch über den
    Öffnen-Link der Integration unter **Geräte & Dienste** erreichbar.
 
 Das eigene Dashboard wird als Home-Assistant-Panel bereitgestellt und benötigt
@@ -51,15 +50,16 @@ Dashboard und Karte sind im HACS-Paket enthalten und werden von der Integration
 selbst geladen. Eine zusätzliche HACS-Dashboard-Installation und ein manuell
 angelegter Ressourceneintrag sind nicht erforderlich. Dies funktioniert mit
 über die Oberfläche verwalteten Dashboards und YAML-Dashboards.
-Die bestehende Karte `custom:heizlast-ha-card` für eigene Benutzergrundrisse
-bleibt ebenfalls verfügbar.
+Die frühere Kartenkennung `custom:heizlast-ha-card` zeigt als kompatibler Alias
+ebenfalls diesen festen Grundriss.
 
 Updates ebenfalls über HACS herunterladen, anschließend Home Assistant neu
-starten und die Browserseite neu laden. Grundrisse und Sensorzuordnungen
-liegen weiterhin in `.storage` und bleiben beim Update erhalten.
+starten und die Browserseite neu laden. Sensorzuordnungen liegen in `.storage`
+und bleiben beim Update erhalten. Früher gespeicherte Benutzerpläne bleiben
+als ungenutzte Altdaten gespeichert; sie werden weder angezeigt noch verändert.
 Auch bei bereits eingerichteten Integrationen erscheint das eigene Dashboard
-nach dem Update automatisch in der Seitenleiste. Normale Benutzer können die
-gespeicherten Pläne ansehen; zum Einrichten sind Administratorrechte nötig.
+nach dem Update automatisch in der Seitenleiste. Normale Benutzer können den
+festen Grundriss und Sensorwerte ansehen; zum Zuordnen sind Administratorrechte nötig.
 
 ### Reparaturmeldung nach Dashboard-Updates
 
@@ -76,7 +76,7 @@ erneut angezeigt. Die Bestätigung gilt für die konkrete Dashboard-Datei; bei
 der nächsten Änderung erscheint eine neue Meldung. Eine Erstinstallation sowie
 Updates mit unveränderter Karte erzeugen keine Reparatur. Beim ersten Wechsel
 von einer älteren Version ohne diese Erkennung erscheint einmalig die Meldung.
-Grundrisse und Sensorzuordnungen bleiben unverändert.
+Sensorzuordnungen und ungenutzte Altdaten bleiben unverändert.
 
 Bei einem Wechsel von Version 0.2.0 zuerst den bisherigen Ressourceneintrag
 `/local/heizlast-ha/heizlast-ha-card.js?...` aus den Dashboard-Ressourcen bzw.
@@ -96,8 +96,8 @@ und seinen Inhalt nach `/config/custom_components/heizlast_ha/` entpacken.
 die Dashboard-Datei unter `www/heizlast-ha-card.js` innerhalb desselben Ordners.
 Danach mit Schritt 4 und 5 der HACS-Anleitung oben fortfahren.
 
-Das größere Projektarchiv aus der CI enthält zusätzlich Quellcode, Tests und
-Beispiele; daraus nur den Inhalt von `custom_components/heizlast_ha/` nach
+Das größere Projektarchiv aus der CI enthält zusätzlich Quellcode und Tests;
+daraus nur den Inhalt von `custom_components/heizlast_ha/` nach
 `/config/custom_components/heizlast_ha/` kopieren.
 
 ## Normheizlasten und Sensoren im Grundriss
@@ -136,99 +136,21 @@ wie **Plan EG**, **Plan OG** und **Heizlastberechnung** mit Blatt-/Seitennummern
 Namen, Ort, Postleitzahl, persönliche Originaldateinamen, Benutzerpfade und
 Original-PDFs werden nicht ausgeliefert.
 
-## Eigene Grundrisse und deren Temperaturanzeige
+## Daten und Speicherung
 
-Unter **Eigene Grundrisse** lautet der gemeinsame Ablauf
-**Quelle → Geschosse → Räume → Sensoren → Prüfen**.
-Bei einem vorhandenen Plan öffnet **Grundriss bearbeiten** dieselben Werkzeuge.
+Der feste Grundriss liegt mit seinen belegten Heizlasten und neutralen
+Quellenbelegen in `custom_components/heizlast_ha/planning-data.json`.
+Die Integration liefert keinen Zeicheneditor, JSON-Import, LLM-Prompt oder
+Speicherendpunkt für eigene Raumgeometrie aus. Über die authentifizierte API
+können ausschließlich Sensorzuordnungen der elf festen Rechenzonen verändert
+werden. Normale Benutzer erhalten nur Lesezugriff.
 
-1. Unter **Quelle** entweder **Neuen Grundriss erstellen** wählen oder JSON
-   einfügen beziehungsweise eine Datei laden und **Import prüfen** wählen.
-   Für die LLM-Erkennung Etagen-ID und Etagenname eingeben, **LLM-Prompt anzeigen**
-   und **Prompt kopieren** verwenden. Private Originaldokumente bleiben lokal;
-   bei Verwendung eines externen LLM ausschließlich vollständig anonymisierte
-   Unterlagen verwenden. Die Integration sendet keine LLM-Anfragen und speichert
-   keine Bilder. Importierte Angaben sind im Editor vorausgefüllt.
-2. Unter **Geschosse** Geschosse anlegen, umbenennen, sortieren oder löschen.
-   Die Zeichenfläche ist anpassbar; ihre Einheiten sind kein metrischer Maßstab.
-3. Unter **Räume** ein Rechteck ziehen oder zwei gegenüberliegende Eckpunkte
-   antippen. Für ein Polygon einzelne Eckpunkte setzen. Raumname eingeben und
-   **Raum fertigstellen** wählen. Punkte können auch numerisch eingegeben werden.
-   Ein Raster, das Einrasten an vorhandenen Eckpunkten, Zoom, Verschieben und
-   **Alles anzeigen** erleichtern die Bearbeitung. Die linke Liste wählt Geschoss
-   und Raum; rechts stehen die Eigenschaften. **Raumgrenzen korrigieren** bietet
-   alternative Koordinateneingaben. Ungültige Konturen bleiben unübernommen.
-4. Unter **Sensoren** jeden Raum auswählen und **Temperatursensoren zuordnen**
-   öffnen. Der Suchfilter bietet vorhandene Temperatur-Sensoren. Mehrere Sensoren
-   und bewusst leere Zuordnungen sind möglich; Werte und Einheiten werden einzeln
-   angezeigt. Bisherige entfernte, nicht verfügbare oder geänderte Sensoren bleiben
-   erkennbar und erhalten. Eine automatische Mittelwertbildung erfolgt nicht.
-5. Unter **Prüfen** alle Räume, Flächen und Zuordnungen durchsehen und ausdrücklich
-   **Änderungen speichern** beziehungsweise **Import übernehmen** wählen.
-   Grundriss und Sensorzuordnungen werden gemeinsam gespeichert. Änderungen sind
-   vorher ein Entwurf; **Rückgängig**, **Wiederholen** und **Änderungen verwerfen**
-   stehen zur Verfügung. Ein Ziehvorgang zählt als ein Bearbeitungsschritt.
-
-**Raum teilen** verbindet zwei Punkte auf der Raumgrenze mit einer geraden Linie.
-Die Vorschau enthält exakt zwei gültige Teilräume. Standardmäßig behält der
-größere Teil die bisherige ID und den Namen; diese Wahl ist änderbar. Für beide
-Teile sind Namen und die ausdrückliche Sensorverteilung sichtbar. Jeder bisherige
-Sensor kann dem bisherigen Teil, dem neuen Teil oder beiden zugewiesen werden.
-Teilflächen bleiben ohne bestätigte Angaben offen; die bisherige Fläche dient
-als Referenz. **Teilung übernehmen** verändert erst den Entwurf.
-
-Beim **Verbinden** bleiben Name und ID des ausgewählten Raums erhalten.
-Gemeinsame Grenzen und schmale Wandabstände werden unterstützt; punktförmige
-Kontakte, eingeschlossene Aussparungen und Verbindungen durch dritte Räume
-werden abgelehnt. Sensoren werden ohne Duplikate übernommen. Sind beide Flächen
-bekannt, werden sie addiert; sonst bleibt die Fläche unbestätigt.
-
-Beim **Raum löschen** entfallen Raum und Zuordnungen. Nach dem letzten Raum
-bleibt das Geschoss als leere Zeichenfläche erhalten. **Geschoss löschen**
-benötigt eine Bestätigung im Entwurf; das letzte Geschoss setzt das Projekt auf
-`plan: null` zurück. Vor dem dauerhaften Entfernen bisheriger Raum-IDs zeigt die
-Speicherbestätigung den Verbleib ihrer Sensoren. Alle Entwurfsänderungen lassen
-sich vorher rückgängig machen.
-
-**Beispiel laden** stellt einen geprüften Grundriss mit Wohnzimmer, Küche, Flur
-und Bad als Importvorschau bereit, auch direkt aus
-[`examples/ground-floor.json`](examples/ground-floor.json) importierbar.
-Ein Reimport mit gleichen Raum-IDs erhält bestehende Sensorzuordnungen.
-Bei einem Speicherkonflikt bleibt der Entwurf erhalten: zuerst **Änderungen
-sichern**, dann die aktuelle Version laden. Die Sicherung enthält Grundriss,
-Zuordnungen und Bearbeitungsnachweise. Normale Benutzer sehen den gespeicherten
-Plan und Temperaturen; alle Änderungen erfordern Administratorrechte.
-
-Der Editor nutzt Home-Assistant-Themefarben, Hell-/Dunkelmodus und eine responsive
-Anordnung. Auf kleinen Bildschirmen stehen Liste, Plan und Eigenschaften
-untereinander. Die Schritte, Formulare und Raumaktionen sind per Tastatur
-bedienbar; Zeichnen und Grenzkorrekturen haben numerische Alternativen.
-
-## Datenformat und Speicherung
-
-[`schemas/floorplan-v1.schema.json`](schemas/floorplan-v1.schema.json) ist der
-verbindliche Vertrag. Dashboard-Import und LLM-Prompt verwenden dieselbe
-Formatdefinition; eine bytegleiche Kopie liegt im Integrationspaket. Version
-`1.1` enthält keine Bildreferenzen; das frühere bildbasierte Format `1.0` wird
-nicht mehr verwendet und ist nicht importierbar. Das Format
-erlaubt bis zu 32 Etagen, 500 Räume pro Etage und 500 Eckpunkte pro Raum.
-Etagen dürfen nach Raumlöschungen leer sein; bestehende Daten bleiben mit
-Schema-Version `1.1` kompatibel.
-
-Koordinaten beziehen sich auf die im JSON definierte Zeichenfläche: Ursprung
-links oben, x nach rechts und y nach unten. Der Prompt lässt das LLM die längere
-Seite auf 1000 Einheiten setzen und das Seitenverhältnis des Plans erhalten.
-Raumflächen sind implizit geschlossene Polygone; den ersten Punkt nicht am Ende
-wiederholen. Selbstüberschneidungen, Nullflächen, Koordinaten außerhalb der
-Zeichenfläche und flächige Überschneidungen verschiedener Räume werden abgelehnt.
-Die Koordinaten ergeben keinen metrischen Maßstab: `area_m2` bleibt ohne
-bestätigte Flächenangabe `null`.
-
-Der Projektzustand wird über Home Assistants Storage-Helfer im
-Konfigurationsverzeichnis unter `.storage` gespeichert. Es werden keine
-Grundrissbilder gespeichert oder nachgeladen. Das Konfigurationsverzeichnis
-einschließlich `.storage` sichern; keine Browserdaten als Ersatz für die
-Home-Assistant-Konfiguration betrachten.
+Die Sensorzuordnungen werden über Home Assistants Storage-Helfer im
+Konfigurationsverzeichnis unter `.storage` gespeichert. Das
+Konfigurationsverzeichnis einschließlich `.storage` sichern. Aus Versionen bis
+0.9.0 vorhandene eigene Pläne werden beim Update intern unverändert aufbewahrt,
+aber nicht mehr an das Dashboard geliefert. Die Planungszuordnungen des festen
+Grundrisses bleiben davon unabhängig erhalten.
 
 ## Entwicklung und CI
 
@@ -263,8 +185,9 @@ nennen.
 
 Mit `npm run dev` im Ordner `frontend/` lässt sich die Karte gegen einen lokalen
 Entwicklungsadapter ansehen. Dieser zeigt die dokumentierten Planungswerte ohne
-simulierte Raumtemperaturen und nutzt lokalen Browser-Speicher. Die ausgelieferte Karte nutzt die echte
-Home-Assistant-Verbindung und dessen persistenten Speicher.
+simulierte Raumtemperaturen und nutzt lokalen Browser-Speicher. Die
+ausgelieferte Karte nutzt die echte Home-Assistant-Verbindung und dessen
+persistenten Speicher.
 
 Die GitHub-CI prüft Pull Requests nach `main` sowie Änderungen auf `main` und
 kann manuell gestartet werden. Ihre verbindliche Beschreibung, die geplanten
