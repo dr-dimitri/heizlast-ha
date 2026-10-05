@@ -15,7 +15,7 @@ export const planningStyles = css`
   .subtitle,.hint,.muted,.source { color:var(--muted); font-size:12px; line-height:1.6; }
   p { margin:6px 0; }
   .chip { border:1px solid var(--line); border-radius:24px; padding:7px 11px; font-size:11px; white-space:nowrap; color:var(--muted); }
-  .metrics { margin:24px 0 22px; display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
+  .metrics { margin:24px 0 22px; display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:12px; }
   .metric { padding:16px 18px; border:1px solid var(--line); border-radius:13px; background:var(--subtle); }
   .metric-label { font-size:11px; color:var(--muted); }
   .metric strong { display:block; margin:7px 0 4px; font-size:27px; font-weight:650; font-variant-numeric:tabular-nums; letter-spacing:-.6px; }

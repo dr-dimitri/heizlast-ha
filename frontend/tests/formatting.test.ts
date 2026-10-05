@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { entityName, formatNumber, measuredTemperatureLabel, outdoorTemperatureLabel, temperatureLabel, temperatureSensors } from "../src/types";
+import { entityName, formatNumber, measuredTemperatureLabel, outdoorTemperatureLabel, roleSensor, solarRadiationLabel, temperatureCelsius, temperatureLabel, temperatureSensors } from "../src/types";
 import type { HassState, HomeAssistant } from "../src/types";
 
 const state = (value = "21.456", unit = "°C"): HassState => ({
@@ -104,5 +104,55 @@ describe("Home Assistant entity formatting", () => {
     expect(outdoorTemperatureLabel(hass)).toBe("5,5 °C");
     expect(temperatureSensors(hass).map((entity) => entity.entity_id)).toEqual([ordinary.entity_id]);
     expect(outdoorTemperatureLabel(host({ states: { [outside.entity_id]: outside, "sensor.other": { ...outside, entity_id: "sensor.other" } } }))).toBe("?");
+  });
+
+  it.each([["20", "°C", 20], ["68", "°F", 20], ["293.15", "K", 20], ["0", "°C", 0], ["-4", "°F", -20], ["253.15", "K", -20]])("converts %s %s to Celsius for calculations while retaining its display unit", (value, unit, celsius) => {
+    expect(temperatureCelsius(state(String(value), String(unit)))).toBeCloseTo(Number(celsius), 10);
+    expect(measuredTemperatureLabel(state(String(value), String(unit)))).toContain(unit);
+  });
+
+  it("does not coerce unknown, invalid, missing-unit or changed-class readings to a calculation temperature", () => {
+    expect(temperatureCelsius()).toBeNull();
+    for (const value of ["unknown", "unavailable", "", " ", "NaN", "Infinity", "1e999", "0x20", "20 °C", "21,5"]) expect(temperatureCelsius(state(value))).toBeNull();
+    for (const unit of ["", "C", "%", "W"]) expect(temperatureCelsius(state("20", unit))).toBeNull();
+    expect(temperatureCelsius({ ...state("20"), attributes: { device_class: "humidity", unit_of_measurement: "°C" } })).toBeNull();
+  });
+
+  it("rejects physically impossible temperatures below absolute zero", () => {
+    expect(temperatureCelsius(state("-273.16", "°C"))).toBeNull();
+    expect(temperatureCelsius(state("-500", "°F"))).toBeNull();
+    expect(temperatureCelsius(state("-1", "K"))).toBeNull();
+    expect(temperatureCelsius(state("0", "K"))).toBe(-273.15);
+  });
+
+  it.each([["68", "°F"], ["293.15", "K"]])("retains outdoor display %s %s while converting the role-selected input for heating calculations", (value, unit) => {
+    const outside = { ...state(value, unit), entity_id: "sensor.weather", attributes: { ...state(value, unit).attributes, heizlast_ha_role: "outdoor_temperature" } };
+    const hass = host({ states: { [outside.entity_id]: outside } });
+    expect(outdoorTemperatureLabel(hass)).toBe(`${formatNumber(Number(value), hass, { maximumFractionDigits: 1 })} ${unit}`);
+    expect(temperatureCelsius(roleSensor(hass, "outdoor_temperature"))).toBeCloseTo(20, 10);
+  });
+
+  it("formats actual global irradiance from exactly one solar-radiation sensor", () => {
+    const sunlight: HassState = { entity_id: "sensor.sunlight", state: "1234.4", attributes: { device_class: "irradiance", unit_of_measurement: "W/m²", heizlast_ha_role: "solar_radiation" } };
+    const hass = host({ states: { [sunlight.entity_id]: sunlight } });
+    expect(solarRadiationLabel(hass)).toBe("1.234 W/m²");
+    expect(solarRadiationLabel({ ...hass, locale: { language: "en" } })).toBe("1,234 W/m²");
+    expect(solarRadiationLabel(host({ states: { [sunlight.entity_id]: { ...sunlight, state: "0" } } }))).toBe("0 W/m²");
+    expect(solarRadiationLabel(host({ states: { [sunlight.entity_id]: sunlight, "sensor.second_sunlight": { ...sunlight, entity_id: "sensor.second_sunlight" } } }))).toBe("?");
+  });
+
+  it("uses ? for missing, negative, invalid or incorrectly typed solar-radiation values", () => {
+    const sunlight: HassState = { entity_id: "sensor.sunlight", state: "500", attributes: { device_class: "irradiance", unit_of_measurement: "W/m²", heizlast_ha_role: "solar_radiation" } };
+    expect(solarRadiationLabel()).toBe("?");
+    expect(solarRadiationLabel(host())).toBe("?");
+    for (const value of ["unknown", "unavailable", "-1", "", " ", "NaN", "Infinity", "1e999", "0x20", "500 W/m²", "12,5"]) {
+      expect(solarRadiationLabel(host({ states: { [sunlight.entity_id]: { ...sunlight, state: value } } }))).toBe("?");
+    }
+    for (const attributes of [
+      { ...sunlight.attributes, unit_of_measurement: "" },
+      { ...sunlight.attributes, unit_of_measurement: "W/m2" },
+      { ...sunlight.attributes, device_class: "temperature" },
+      { ...sunlight.attributes, heizlast_ha_role: "other_role" },
+    ]) expect(solarRadiationLabel(host({ states: { [sunlight.entity_id]: { ...sunlight, attributes } } }))).toBe("?");
   });
 });
