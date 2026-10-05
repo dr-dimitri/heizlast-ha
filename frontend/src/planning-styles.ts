@@ -15,12 +15,13 @@ export const planningStyles = css`
   .subtitle,.hint,.muted,.source { color:var(--muted); font-size:12px; line-height:1.6; }
   p { margin:6px 0; }
   .chip { border:1px solid var(--line); border-radius:24px; padding:7px 11px; font-size:11px; white-space:nowrap; color:var(--muted); }
-  .metrics { margin:24px 0 22px; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+  .metrics { margin:24px 0 22px; display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
   .metric { padding:16px 18px; border:1px solid var(--line); border-radius:13px; background:var(--subtle); }
   .metric-label { font-size:11px; color:var(--muted); }
   .metric strong { display:block; margin:7px 0 4px; font-size:27px; font-weight:650; font-variant-numeric:tabular-nums; letter-spacing:-.6px; }
   .metric strong small { font-size:14px; font-weight:400; color:var(--muted); }
   .metric p { font-size:11px; color:var(--muted); }
+  .metric a { color:var(--accent); }
   .toolbar { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom:16px; }
   .floor-tabs { display:flex; background:var(--subtle); border:1px solid var(--line); border-radius:12px; padding:4px; gap:4px; }
   .floor-tabs button { border-color:transparent; background:transparent; color:var(--muted); padding:9px 17px; }
@@ -36,15 +37,17 @@ export const planningStyles = css`
   .room-shape { fill:color-mix(in srgb,var(--accent) 11%,var(--surface)); stroke:color-mix(in srgb,var(--muted) 55%,var(--surface)); stroke-width:2; stroke-linejoin:round; cursor:pointer; }
   .room-shape.selected { fill:color-mix(in srgb,var(--accent) 30%,var(--surface)); stroke:var(--accent); stroke-width:2.4; }
   .room-shape.uncertain { stroke-dasharray:5 3; }
-  .room-label { position:absolute; transform:translate(-50%,-50%); padding:4px 5px; border:1px solid transparent; border-radius:6px; font-size:clamp(10px,1.1vw,13px); line-height:1.4; background:color-mix(in srgb,var(--surface) 85%,transparent); white-space:nowrap; min-height:32px; }
-  .room-label strong { font-weight:600; display:block; }
-  .room-label small { display:block; font-size:9px; color:var(--muted); }
+  .room-label-box { overflow:visible; }
+  .room-label { display:block; width:100%; height:100%; padding:0; border:1px solid transparent; border-radius:6px; color:var(--primary-text-color); background:color-mix(in srgb,var(--surface) 85%,transparent); }
+  .room-label:focus-visible { outline-offset:-3px; }
+  .room-name { font-size:12px; font-weight:600; fill:currentColor; }
+  .room-readings { font-size:8px; fill:var(--muted); font-variant-numeric:tabular-nums; }
   .room-label.selected { border-color:var(--accent); color:var(--accent); background:var(--surface); }
-  .room-label.uncertain strong::after { content:" ?"; }
   .stairs { fill:var(--subtle); stroke:var(--muted); stroke-width:1; opacity:.65; }
   .stair-step { stroke:var(--muted); stroke-width:.7; opacity:.6; }
   .legend { display:flex; gap:14px; flex-wrap:wrap; font-size:10px; color:var(--muted); margin:10px 0 0; }
   .legend span { display:flex; align-items:center; gap:6px; }
+  .readings-legend { color:var(--muted); font-size:10px; line-height:1.5; margin-top:10px; }
   .dot { display:inline-block; width:9px; height:9px; border:1px solid var(--muted); background:color-mix(in srgb,var(--accent) 11%,var(--surface)); border-radius:3px; }
   .dot.selected { border-color:var(--accent); background:var(--accent); }
   .dot.uncertain { border-style:dashed; background:var(--surface); }
@@ -87,7 +90,7 @@ export const planningStyles = css`
   .notice button { margin-top:10px; font-size:12px; }
   .error { border-color:var(--error-color,#db4437); }
   .footer { margin-top:20px; padding-top:16px; border-top:1px solid var(--line); display:flex; justify-content:space-between; gap:16px; font-size:10px; color:var(--muted); line-height:1.5; }
-  @media(max-width:950px) { .workspace { grid-template-columns:minmax(0,1fr) 260px; gap:12px; } .dashboard { padding:18px; } .details { padding:16px; } .metric { padding:13px; } .metric strong { font-size:25px; } .zone-button span:last-child { display:none; } }
-  @media(max-width:720px) { .workspace { grid-template-columns:1fr; } .dashboard { padding:14px; } h1 { font-size:24px; } .chip { display:none; } .metrics { margin:18px 0; gap:8px; } .metric { padding:11px; } .metric strong { font-size:22px; } .metric-label { font-size:10px; } .metric p { font-size:10px; } .map-card { padding:12px; } .room-label { font-size:12px; } .details { padding:18px; } .footer { flex-direction:column; gap:3px; } }
-  @media(max-width:420px) { .metrics { grid-template-columns:1fr 1fr; } .metric:last-child { grid-column:span 2; display:grid; grid-template-columns:1fr auto; gap:2px 10px; align-items:center; } .metric:last-child strong { grid-column:2; grid-row:1 / span 2; margin:0; } .room-label { font-size:10px; padding:3px; } .room-label small { font-size:8px; } .plan-heading span { display:none; } .zone-list { gap:6px; } .zone-button { font-size:11px; gap:6px; } .zone-number { min-width:19px; width:19px; height:19px; } .floor-tabs button { padding:9px 12px; font-size:12px; } }
+  @media(max-width:950px) { .workspace { grid-template-columns:minmax(0,1fr) 260px; gap:12px; } .metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } .dashboard { padding:18px; } .details { padding:16px; } .metric { padding:13px; } .metric strong { font-size:25px; } .zone-button span:last-child { display:none; } }
+  @media(max-width:720px) { .workspace { grid-template-columns:1fr; } .dashboard { padding:14px; } h1 { font-size:24px; } .chip { display:none; } .metrics { margin:18px 0; gap:8px; } .metric { padding:11px; } .metric strong { font-size:22px; } .metric-label { font-size:10px; } .metric p { font-size:10px; } .map-card { padding:12px; } .details { padding:18px; } .footer { flex-direction:column; gap:3px; } }
+  @media(max-width:420px) { .plan-heading span { display:none; } .zone-list { gap:6px; } .zone-button { font-size:11px; gap:6px; } .zone-number { min-width:19px; width:19px; height:19px; } .floor-tabs button { padding:9px 12px; font-size:12px; } }
 `;

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { entityName, formatNumber, temperatureLabel, temperatureSensors } from "../src/types";
+import { entityName, formatNumber, measuredTemperatureLabel, outdoorTemperatureLabel, temperatureLabel, temperatureSensors } from "../src/types";
 import type { HassState, HomeAssistant } from "../src/types";
 
 const state = (value = "21.456", unit = "°C"): HassState => ({
@@ -79,5 +79,30 @@ describe("Home Assistant entity formatting", () => {
       formatEntityName: (entity) => entity === first ? "Zebra" : "Alpha",
     });
     expect(temperatureSensors(hass).map((entity) => entity.entity_id)).toEqual([second.entity_id, first.entity_id]);
+  });
+
+  it.each([["20.75", "°C", "20,8 °C"], ["71.6", "°F", "71,6 °F"], ["293.15", "K", "293,2 K"], ["0", "°C", "0 °C"], ["-12", "°C", "-12 °C"]])("displays numeric temperature %s in its actual %s unit", (value, unit, expected) => {
+    expect(measuredTemperatureLabel(state(value, unit))).toBe(expected);
+  });
+
+  it.each(["unknown", "unavailable", "", " ", "NaN", "Infinity", "1e999", "0x20", "20 °C", "21,5", "n/a"])("uses ? for a missing or invalid live temperature %j", (value) => {
+    expect(measuredTemperatureLabel(state(value))).toBe("?");
+  });
+
+  it("uses ? for removed sensors, changed device classes and unrecognized or missing units", () => {
+    expect(measuredTemperatureLabel()).toBe("?");
+    expect(measuredTemperatureLabel({ ...state(), attributes: { device_class: "humidity", unit_of_measurement: "%" } })).toBe("?");
+    for (const unit of ["", "C", "%", "W", "°C / h"]) expect(measuredTemperatureLabel(state("20", unit))).toBe("?");
+    expect(measuredTemperatureLabel(state("21.4"), host({ locale: { language: "en" } }))).toBe("21.4 °C");
+  });
+
+  it("requires exactly one role-marked outdoor sensor without selecting arbitrary weather entities", () => {
+    const ordinary = state("21.4");
+    const outside = { ...state("5.5"), entity_id: "sensor.weather", attributes: { ...state().attributes, heizlast_ha_role: "outdoor_temperature" } };
+    expect(outdoorTemperatureLabel(host({ states: { [ordinary.entity_id]: ordinary } }))).toBe("?");
+    const hass = host({ states: { [ordinary.entity_id]: ordinary, [outside.entity_id]: outside } });
+    expect(outdoorTemperatureLabel(hass)).toBe("5,5 °C");
+    expect(temperatureSensors(hass).map((entity) => entity.entity_id)).toEqual([ordinary.entity_id]);
+    expect(outdoorTemperatureLabel(host({ states: { [outside.entity_id]: outside, "sensor.other": { ...outside, entity_id: "sensor.other" } } }))).toBe("?");
   });
 });

@@ -82,6 +82,7 @@ def test_hacs_installation_includes_card_and_only_integration_files(
             "brand/icon.png",
             "planning.py",
             "planning-data.json",
+            "sensor.py",
         } <= names
         assert not any(
             name.startswith(("custom_components/", "frontend/", "tests/"))
@@ -150,7 +151,7 @@ def test_hacs_build_requires_tracked_repository_manifest(hacs_repository):
         build(root, root / "dist")
 
 
-@pytest.mark.parametrize("filename", ["planning.py", "planning-data.json"])
+@pytest.mark.parametrize("filename", ["planning.py", "planning-data.json", "sensor.py"])
 def test_hacs_build_requires_tracked_planning_runtime(hacs_repository, filename):
     root = hacs_repository
     subprocess.run(
@@ -226,6 +227,7 @@ def test_packaged_planning_data_has_only_neutral_source_references(hacs_reposito
         "repairs.py",
         "planning.py",
         "planning-data.json",
+        "sensor.py",
         "www/heizlast-ha-card.js",
         "build-info.json",
     ],

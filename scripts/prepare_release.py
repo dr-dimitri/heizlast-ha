@@ -37,6 +37,7 @@ def prepare_release(root: Path, artifacts: Path, output: Path, commit: str) -> P
             "frontend.py",
             "planning.py",
             "planning-data.json",
+            "sensor.py",
             "repairs.py",
             "www/heizlast-ha-card.js",
             "brand/icon.png",

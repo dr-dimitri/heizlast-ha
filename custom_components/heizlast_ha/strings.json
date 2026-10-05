@@ -27,5 +27,12 @@
         }
       }
     }
+  },
+  "entity": {
+    "sensor": {
+      "outdoor_temperature": {
+        "name": "Outdoor temperature"
+      }
+    }
   }
 }

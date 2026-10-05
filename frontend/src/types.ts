@@ -10,6 +10,7 @@ export interface HassState {
     friendly_name?: string;
     device_class?: string;
     unit_of_measurement?: string;
+    heizlast_ha_role?: string;
   };
 }
 export interface HomeAssistant {
@@ -33,8 +34,23 @@ export function bindingFor(bindings: Record<string, string[]>, id: string): stri
 
 export function temperatureSensors(hass: HomeAssistant): HassState[] {
   return Object.values(hass.states)
-    .filter((entity) => entity.entity_id.startsWith("sensor.") && entity.attributes.device_class === "temperature")
+    .filter((entity) => entity.entity_id.startsWith("sensor.") && entity.attributes.device_class === "temperature" && entity.attributes.heizlast_ha_role !== "outdoor_temperature")
     .sort((a, b) => (entityName(a, hass) ?? a.entity_id).localeCompare(entityName(b, hass) ?? b.entity_id, hass.locale?.language || "de"));
+}
+
+/** Read one actual temperature, retaining its declared unit without averaging. */
+export function measuredTemperatureLabel(state?: HassState, hass?: HomeAssistant): string {
+  if (!state || state.attributes.device_class !== "temperature" || !["°C", "°F", "K"].includes(state.attributes.unit_of_measurement ?? "")) return "?";
+  const valueText = state.state.trim();
+  if (!/^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(valueText)) return "?";
+  const value = Number(valueText);
+  if (!Number.isFinite(value)) return "?";
+  return `${formatNumber(value, hass, { maximumFractionDigits: 1 })} ${state.attributes.unit_of_measurement}`;
+}
+
+export function outdoorTemperatureLabel(hass?: HomeAssistant): string {
+  const sensors = Object.values(hass?.states ?? {}).filter((state) => state.entity_id.startsWith("sensor.") && state.attributes.heizlast_ha_role === "outdoor_temperature");
+  return sensors.length === 1 ? measuredTemperatureLabel(sensors[0], hass) : "?";
 }
 
 export function entityName(state?: HassState, hass?: HomeAssistant): string | undefined {

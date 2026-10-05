@@ -1,7 +1,7 @@
 # heizlast-ha
 
 Home-Assistant-Integration mit einer interaktiven digitalen Grundrisskarte.
-Version **0.10.0** öffnet den fest implementierten Grundriss direkt in der
+Version **0.11.0** öffnet den fest implementierten Grundriss direkt in der
 HA-Seitenleiste. Erdgeschoss und Obergeschoss zeigen die aus den Werkplänen
 übernommenen Raumkonturen und die belegten Normheizlasten von elf Rechenzonen.
 Räume lassen sich anklicken; rechts stehen Fläche, Auslegungstemperatur,
@@ -9,10 +9,21 @@ Wärmeverluste, Quellenbelege und vorhandene Temperatursensoren.
 Spitzboden und Nebengebäude gehören nicht zur Darstellung.
 
 Die Integration speichert die Sensorzuordnungen in Home Assistant.
-Temperaturwerte kommen direkt von den vorhandenen Sensoren. Dokumentierte
+Raumtemperaturen kommen direkt von den vorhandenen Sensoren. Dokumentierte
 Normheizlasten sind Planungsdaten, keine aktuellen Messwerte. Ohne Sensorzuordnung
 werden keine Raumtemperaturen vorgetäuscht. Eine Berechnung des aktuellen
-Wärmebedarfs und eine Heizungssteuerung sind nicht enthalten.
+Wärmebedarfs und eine Heizungssteuerung sind nicht enthalten. Jedes Raumlabel
+zeigt **aktuelle Temperatur / berechnete Heizlast / aktuelle Heizlast**.
+Fehlende Werte erscheinen als **?**; insbesondere bleibt die aktuelle Heizlast
+ohne Datenquelle unbekannt.
+
+Die Außentemperatur wird über Open-Meteo mit dem in Home Assistant eingestellten
+Standort abgefragt: beim Laden der Integration und anschließend alle **30 Minuten**.
+Bei Fehlern bleibt der letzte erfolgreiche Wert erhalten; nach weiteren
+30 Minuten wird erneut abgefragt. Vor dem ersten erfolgreichen Abruf steht **?**.
+Die Standortkoordinaten werden ausschließlich für diese HTTPS-Abfrage verwendet
+und nicht mit dem Dashboard ausgeliefert. Open-Meteo liefert Wettermodelldaten,
+keine lokale Sensormessung. Quelle: [Open-Meteo](https://open-meteo.com/).
 
 Die Integration stellt ausschließlich diesen EG-/OG-Grundriss bereit.
 Raumkonturen und Rechenzonen sind fest hinterlegt. Das Hinzufügen, Importieren
@@ -108,10 +119,11 @@ sind vereinfacht nachgezeichnet; ihre Zeichenkoordinaten sind kein Aufmaß.
 Flächen stammen ausschließlich aus den Dokumentangaben.
 
 - Wohnen/Essen/Küche bilden einen offenen Bereich mit einer gemeinsamen
-  Heizlast. Gard./Diele bilden ebenfalls eine Rechenzone. Schlafen und Ankleide
-  besitzen getrennte Konturen und einen gemeinsamen Heizlastwert.
-- Das Bad ist mit **?** gekennzeichnet: Im OG-Plan ist der Sanitärraum
-  unbeschriftet. Seine Zuordnung zur berechneten Zone 7 bleibt zu bestätigen;
+  Heizlast. Zone 4 ist als **Diele** beschriftet. Schlafen und Ankleide
+  bilden eine zusammenhängende Kontur **Schlafzimmer** mit dem bisherigen
+  gemeinsamen Heizlastwert.
+- Die Zuordnung des Bads zur berechneten Zone 7 ist bestätigt. Seine
+  unbeschriftete Planfläche bleibt unbekannt;
   12,74 m² und 641,59 W sind belegte Berechnungswerte, keine aus der Kontur
   abgeleiteten Zahlen.
 - Die Gebäude-Normheizlast beträgt **5.989 W**, die Raumheizlastsumme
@@ -128,6 +140,12 @@ nicht verfügbare Sensoren bleiben erkennbar. Normale Benutzer können die
 gespeicherten Zuordnungen und Werte ansehen. Die Zuordnungen werden zentral in
 Home Assistant gespeichert und nutzen eine gemeinsame Projekt-Revision, um
 gleichzeitige Änderungen nicht zu überschreiben.
+
+Das kompakte Raumlabel zeigt die Temperatur eines eindeutig zugeordneten
+verfügbaren Sensors. Bei mehreren Sensoren steht dort **?**; die Einzelwerte
+bleiben in den Raumdetails sichtbar. Es werden keine Mittelwerte erzeugt.
+Die Außentemperatur erscheint zusätzlich im Dashboard und als Home-Assistant-
+Temperatursensor. Nach Abfragefehlern bleibt der letzte Wert verfügbar.
 
 Der mitgelieferte Datensatz
 [`planning-data.json`](custom_components/heizlast_ha/planning-data.json)

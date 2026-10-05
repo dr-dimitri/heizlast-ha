@@ -1,6 +1,7 @@
 """Heizlast HA: the fixed residential floor plan and temperature dashboard."""
 
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
@@ -14,6 +15,7 @@ from .project import Project
 from .repairs import async_check_dashboard_update, async_clear_dashboard_issues
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+PLATFORMS = [Platform.SENSOR]
 type HeizlastConfigEntry = ConfigEntry[Project]
 
 
@@ -39,11 +41,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: HeizlastConfigEntry) -> 
     entry.runtime_data = project
     hass.data[DOMAIN]["project"] = project
     async_check_dashboard_update(hass, entry, dashboard)
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: HeizlastConfigEntry) -> bool:
     """Finish pending mutations before removing this entry from the APIs."""
+    if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
+        return False
     await entry.runtime_data.async_shutdown()
     unregister_card(hass)
     hass.data[DOMAIN].pop("dashboard", None)

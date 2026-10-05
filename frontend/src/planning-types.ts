@@ -8,7 +8,7 @@ export interface HeatZone {
 }
 export interface PlanShape {
   key: string; name: string; short: string; floor: PlanningFloor; zone: number;
-  area: number | null; poly: Point[] | null; center: Point;
+  area: number | null; poly: Point[] | null; center: Point; label_box: Point;
 }
 export interface PlanningData {
   schema_version: number;
