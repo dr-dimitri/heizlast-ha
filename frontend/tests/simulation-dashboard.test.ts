@@ -34,6 +34,26 @@ function detailValue(card: HeizlastGrundrissCard, label: string) { return [...ca
 afterEach(() => document.body.replaceChildren());
 
 describe("simulation in the existing fixed floorplan", () => {
+  it("explains the assumed calibration and covers both floors without solar at its operating point", async () => {
+    const { card, callWS } = await mount(); await press(card, "Simulation");
+    expect(content(card)).toContain("Kalibrierannahme für die Startwerte: 22 °C innen bei -9 °C außen und 35 °C Vorlauf");
+    expect(content(card)).toContain("Dies ist eine Annahme, keine Messung");
+    expect(numberInput(card, "Referenzleistung (W/m²)").value).toBe("55");
+    expect(numberInput(card, "Referenz-Innentemperatur (°C)").value).toBe("22");
+    await change(card, "Außentemperatur (°C)", "-9"); await weather(card, "cloudy");
+    await change(card, "Referenz-Diffusstrahlung bewölkt bei 45° (W/m²)", "0");
+    for (const [floor, count] of [["Erdgeschoss", 5], ["Obergeschoss", 6]] as const) {
+      await press(card, floor);
+      expect(metric(card, "Solare Gewinne")).toBe("≈ 0 W");
+      expect(metric(card, "Räume mit Spitzen-Defizit")).toBe(`0 / ${count}`);
+      expect(card.shadowRoot!.querySelectorAll("polygon.room-shape.simulated-covered")).toHaveLength(count);
+    }
+    await change(card, "Vorlauf (°C)", "30");
+    expect(metric(card, "Räume mit Spitzen-Defizit")).not.toBe("0 / 6");
+    expect(numberInput(card, "Referenzleistung (W/m²)").value).toBe("55");
+    expect(callWS).toHaveBeenCalledExactlyOnceWith({ type: "heizlast_ha/get_project" });
+  });
+
   it("starts in Live and reuses the same EG/OG contours, labels and room selection in Simulation", async () => {
     const { card, callWS } = await mount();
     expect(card.shadowRoot!.querySelector('#view-live')!.getAttribute("aria-selected")).toBe("true");
@@ -138,7 +158,7 @@ describe("simulation in the existing fixed floorplan", () => {
   });
 
   it("marks the room's peak deficit even when its mean balance is positive", async () => {
-    const { card } = await mount(); await press(card, "Simulation"); await change(card, "Vorlauf (°C)", "30");
+    const { card } = await mount(); await press(card, "Simulation"); await change(card, "Vorlauf (°C)", "28");
     const livingLabel = card.shadowRoot!.querySelector('[data-shape="eg_wohnen"]')!;
     expect(livingLabel.querySelector(".room-readings")!.textContent).toMatch(/^≈ [\d.]+ \/ [\d.]+ \/ \+[\d.]+ W$/);
     expect(livingLabel.getAttribute("aria-label")).toMatch(/Größtes Defizit \(ohne Speicher\): ≈ [1-9][\d.]* W/);

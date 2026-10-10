@@ -252,9 +252,29 @@ für Vorlauf/Rücklauf ist auf Seiten 8 und 10 belegt und liefert die
 Starttemperatur und 7 K Spreizung. Er ist keine aktuelle Anlagenmessung.
 
 Unter **FBH-Annahmen einstellen** sind die nicht belegten Startannahmen einstellbar:
-80 % aktive Fußbodenfläche, 50 W/m² Referenzleistung bei zunächst
-35/28 °C und angenommenen 20 °C Raumtemperatur, Kennlinienexponent 1,1
-und 29 °C maximale Bodenoberfläche. Die Spreizung am Referenzpunkt ist
+80 % aktive Fußbodenfläche, angenommene 22 °C Referenz-Raumtemperatur,
+Kennlinienexponent 1,1 und 29 °C maximale Bodenoberfläche. Die anfängliche
+Referenzleistung wird aus der ausdrücklich vorgegebenen **Kalibrierannahme**
+abgeleitet: Bei **−9 °C außen und 22 °C innen** soll die Fußbodenheizung mit
+dem belegten Planungsansatz **35/28 °C** ohne solare Gewinne jeden Raum versorgen.
+Dazu wird der temperaturbezogene Bedarf jeder Rechenzone mit dem gemeinsamen
+Rechenkern aus den unveränderten Planungsdaten berechnet und durch ihre
+angenommene aktive Heizfläche geteilt. Der größte dieser Werte, auf volle
+W/m² aufgerundet, ist die gemeinsame Start-Referenzleistung. Sie beträgt
+mit dem aktuellen Datensatz **55 W/m² bei 35/28/22 °C**. So bestimmt der Raum
+mit dem höchsten Bedarf je aktiver Heizfläche die Kalibrierung; eine günstige
+Gesamtbilanz verdeckt keine unterversorgten Räume. Andere Räume können dabei
+Leistungsreserven haben. Die Annahme ist **keine Anlagenmessung und kein
+Nachweis der tatsächlich verbauten FBH-Leistung**.
+
+Die Kalibrierung setzt nur die Startparameter. Änderungen an Vorlauf, Raum- oder
+Außentemperatur, aktiver Heizfläche oder Referenzleistung kalibrieren die
+Anlage nicht automatisch nach; ungünstigere Bedingungen können wieder
+Raumdefizite erzeugen. Wasser- und Oberflächengrenzen gelten weiterhin.
+Für ein vollständig solarfreies Szenario **Bewölkt** auswählen und unter
+Wetterannahmen die Referenz-Diffusstrahlung bewölkt auf **0 W/m²** setzen.
+
+Die Spreizung am Referenzpunkt ist
 ebenfalls einstellbar; ihre Änderung verändert den angenommenen
 Referenzrücklauf. Das Wassermodell verwendet die logarithmische
 Heizmittelübertemperatur. Die Referenzleistung wird mit dem Verhältnis

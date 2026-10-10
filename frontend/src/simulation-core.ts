@@ -123,6 +123,9 @@ const REPRESENTATIVE_DAY = 15;
 const MONTH_DAY_OFFSETS = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334] as const;
 const REFERENCE_SINE_ELEVATION = Math.SQRT1_2;
 
+/** User-specified operating assumption, not a measured or documented building value. */
+export const HEATING_CALIBRATION = { indoorTemperatureC: 22, outdoorTemperatureC: -9 } as const;
+
 /** Only the initial supply temperature comes from documented planning data. */
 export function defaultSimulationScenario(data: SimulationPlanningData): SimulationScenario {
   return {
@@ -131,11 +134,21 @@ export function defaultSimulationScenario(data: SimulationPlanningData): Simulat
   };
 }
 
-/** All values except the documented design return drop are adjustable assumptions. */
+/** Calibrate the shared initial emission to cover every zone without solar gains. */
 export function defaultSimulationParameters(data: SimulationPlanningData): SimulationParameters {
+  const activeFloorFraction = 0.8;
+  const requiredFluxes = data.zones.map((zone) => {
+    const loss = heatLossW(zone, HEATING_CALIBRATION.indoorTemperatureC,
+      HEATING_CALIBRATION.outdoorTemperatureC, data.building.design_outdoor_temperature_c);
+    if (loss === null || !Number.isFinite(zone.area) || zone.area < 0) return NaN;
+    if (zone.area === 0) return loss === 0 ? 0 : NaN;
+    return loss / (zone.area * activeFloorFraction);
+  });
+  // Round upward to the UI's whole-W/m² step; do not hide impossible calibrations.
+  const referenceHeatFluxWPerM2 = Math.ceil(Math.max(1, ...requiredFluxes));
   return {
     returnDropK: data.underfloor_heating.design_supply_temperature_c - data.underfloor_heating.design_return_temperature_c,
-    activeFloorFraction: 0.8, referenceHeatFluxWPerM2: 50, referenceIndoorTemperatureC: 20,
+    activeFloorFraction, referenceHeatFluxWPerM2, referenceIndoorTemperatureC: HEATING_CALIBRATION.indoorTemperatureC,
     emissionExponent: 1.1, maxFloorSurfaceTemperatureC: 29, sunnyDirectNormalWPerM2: 700,
     sunnyDiffuseWPerM2: 100, cloudyDiffuseWPerM2: 150,
     groundReflectance: 0.2,
