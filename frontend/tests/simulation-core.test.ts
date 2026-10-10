@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
+import { planningData } from "../src/planning-types";
 import { heatLossW, solarGainsFromFacadesW } from "../src/thermal-model";
 import {
   SIMULATION_RANGES, defaultSimulationParameters, defaultSimulationScenario, simulateBuilding,
@@ -78,7 +79,72 @@ const runSimulation = (
   scenarioChanges: Partial<SimulationScenario> = {}, parameterChanges: Partial<SimulationParameters> = {},
   data = sourceData(), site: SimulationSite = { latitudeDeg: 45 },
 ) => simulateBuilding(data, { ...defaultSimulationScenario(data), ...scenarioChanges },
-  { ...defaultSimulationParameters(data), ...parameterChanges }, site);
+  // Explicit manual reference for the independent emission-curve tests.
+  { ...defaultSimulationParameters(data), referenceHeatFluxWPerM2: 50, referenceIndoorTemperatureC: 20, ...parameterChanges }, site);
+
+describe("assumed heating calibration", () => {
+  const scenario = { ...defaultSimulationScenario(planningData), supplyTemperatureC: 35,
+    indoorTemperatureC: 22, outdoorTemperatureC: -9, weather: "cloudy" as const };
+  const parameters = () => ({ ...defaultSimulationParameters(planningData), cloudyDiffuseWPerM2: 0 });
+  const site = { latitudeDeg: 45 };
+
+  it("covers all actual zones at 35 °C supply, 22 °C inside and −9 °C outside without solar", () => {
+    const before = JSON.stringify(planningData), assumptions = parameters();
+    const result = simulateBuilding(planningData, scenario, assumptions, site);
+    expect(result.valid).toBe(true);
+    expect(result.totals!.solarGainsW).toBe(0);
+    expect(result.zones).toHaveLength(planningData.zones.length);
+    expect(assumptions.referenceHeatFluxWPerM2).toBe(55);
+    expect(assumptions.referenceIndoorTemperatureC).toBe(22);
+    for (const zone of result.zones) {
+      expect(zone.heatingPowerW).toBeGreaterThanOrEqual(zone.heatDemandW);
+      expect(zone.peakDeficitW).toBe(0);
+      expect(zone.returnTemperatureC).toBeCloseTo(planningData.underfloor_heating.design_return_temperature_c);
+      expect(zone.floorSurfaceTemperatureC).toBeLessThanOrEqual(assumptions.maxFloorSurfaceTemperatureC);
+    }
+    expect(JSON.stringify(planningData)).toBe(before);
+  });
+
+  it("derives the initial reference from the most demanding zone, independent of order and total area", () => {
+    const data = sourceData();
+    data.zones[0].load = 1200;
+    const before = JSON.stringify(data), initial = defaultSimulationParameters(data);
+    expect(initial.referenceHeatFluxWPerM2).toBe(78);
+    expect(JSON.stringify(data)).toBe(before);
+    data.zones = [...data.zones].reverse().concat({ ...data.zones[0], id: 4, area: 100, load: 0 });
+    expect(defaultSimulationParameters(data).referenceHeatFluxWPerM2).toBe(initial.referenceHeatFluxWPerM2);
+  });
+
+  it("keeps deficits visible for colder weather, lower supply, less active area or manual assumptions", () => {
+    const assumptions = parameters();
+    const colder = simulateBuilding(planningData, { ...scenario, outdoorTemperatureC: -12 }, assumptions, site);
+    const lowerSupply = simulateBuilding(planningData, { ...scenario, supplyTemperatureC: 34 }, assumptions, site);
+    const lessFloor = simulateBuilding(planningData, scenario, { ...assumptions, activeFloorFraction: 0.7 }, site);
+    const manual = simulateBuilding(planningData, scenario,
+      { ...assumptions, referenceHeatFluxWPerM2: 50, referenceIndoorTemperatureC: 20 }, site);
+    const surfaceLimited = simulateBuilding(planningData, scenario,
+      { ...assumptions, maxFloorSurfaceTemperatureC: 25 }, site);
+    for (const result of [colder, lowerSupply, lessFloor, manual, surfaceLimited]) {
+      expect(result.valid).toBe(true);
+      expect(result.zones.some((zone) => zone.peakDeficitW > 0)).toBe(true);
+    }
+    expect(colder.totals!.heatingPowerW).toBe(simulateBuilding(planningData, scenario, assumptions, site).totals!.heatingPowerW);
+    expect(manual.zones.filter((zone) => zone.peakDeficitW > 0)).toHaveLength(8);
+    expect(assumptions).toEqual(parameters());
+  });
+
+  it("does not fabricate a usable calibration for impossible data or water temperatures", () => {
+    for (const area of [0, -1, NaN]) {
+      const data = sourceData(); data.zones[0].area = area;
+      expect(simulateBuilding(data, scenario, defaultSimulationParameters(data), site).valid).toBe(false);
+    }
+    const data = sourceData(); data.zones[0].load *= 10;
+    expect(simulateBuilding(data, scenario, defaultSimulationParameters(data), site).valid).toBe(false);
+    data.zones[0].load /= 10;
+    data.underfloor_heating = { design_supply_temperature_c: 25, design_return_temperature_c: 23 };
+    expect(simulateBuilding(data, scenario, defaultSimulationParameters(data), site).errors).toContain("referenceHeatFluxWPerM2");
+  });
+});
 
 describe("isolated floor-heating simulation", () => {
   it("imports and runs without DOM or Home Assistant", () => {
@@ -93,7 +159,8 @@ describe("isolated floor-heating simulation", () => {
     const data = sourceData();
     expect(defaultSimulationScenario(data)).toEqual({ supplyTemperatureC: 35, indoorTemperatureC: 22, outdoorTemperatureC: 5, weather: "sunny", month: 1 });
     expect(defaultSimulationParameters(data).returnDropK).toBe(7);
-    expect(defaultSimulationParameters(data).referenceHeatFluxWPerM2).toBe(50);
+    expect(defaultSimulationParameters(data).referenceHeatFluxWPerM2).toBe(65);
+    expect(defaultSimulationParameters(data).referenceIndoorTemperatureC).toBe(22);
     data.underfloor_heating = { design_supply_temperature_c: 40, design_return_temperature_c: 30 };
     expect(defaultSimulationScenario(data).supplyTemperatureC).toBe(40);
     expect(defaultSimulationParameters(data).returnDropK).toBe(10);

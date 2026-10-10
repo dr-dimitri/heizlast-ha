@@ -158,7 +158,7 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
 ### Versionierung und Paketinhalt
 
 - `VERSION` ist die zentrale Projektversion im Format `MAJOR.MINOR.PATCH`,
-  aktuell `0.14.0`. Für eine neue Implementierung die Version nach SemVer
+  aktuell `0.15.0`. Für eine neue Implementierung die Version nach SemVer
   erhöhen. Jeder Merge benötigt eine bisher unveröffentlichte Version für das
   verpflichtende HACS-Release; reine Dokumentationsänderungen erhöhen mindestens
   die Patch-Version. CI-Builds erhalten zusätzlich eine eindeutige Buildkennung.
@@ -349,9 +349,24 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   die Simulation erzeugen. Unter `underfloor_heating` stehen nur belegte
   35/28 °C aus EnEV-Nachweis, Seiten 8/10, mit neutralem Quellenbeleg.
 - Die FBH-Simulation ist eine einstellbare Näherung: logarithmische
-  Heizmittelübertemperatur, angenommen 50 W/m² bei zunächst 35/28 °C und
-  angenommenen 20 °C Raumtemperatur, 80 % aktive Bodenfläche, Exponent 1,1
-  und 29 °C maximale Bodenoberfläche. Die Oberfläche wird mit
+  Heizmittelübertemperatur, 80 % aktive Bodenfläche, Exponent 1,1 und
+  29 °C maximale Bodenoberfläche. Die Start-Referenzleistung wird aus der
+  ausdrücklichen Benutzerannahme abgeleitet, dass bei −9 °C außen und 22 °C
+  innen mit dem belegten Planungsansatz 35/28 °C jeder Raum ohne solare
+  Gewinne versorgt werden kann. Der gemeinsame Rechenkern berechnet den
+  Bedarf jeder Zone aus der einzigen Planungsdatenquelle; geteilt durch
+  80 % ihrer Fläche liefert der größte Wert, auf volle W/m² aufgerundet,
+  die gemeinsame Referenzleistung (aktuell 55 W/m² bei 35/28/22 °C).
+  Dies ist eine Kalibrierannahme, keine Messung oder belegte Anlagenleistung.
+  Die Oberfläche erklärt die Herleitung und den solarfreien Fall (Bewölkt
+  mit 0 W/m² Referenz-Diffusstrahlung). Die Kalibrierung setzt nur Startwerte;
+  Änderungen der Szenario- oder Anlagenparameter werden nicht automatisch
+  nachkalibriert. Kältere Außenluft, niedrigerer Vorlauf, weniger Heizfläche
+  und niedrigere manuelle Referenzleistung können weiterhin Defizite ergeben.
+  Tests prüfen den solarfreien Kalibrierpunkt in allen elf Zonen und beiden
+  Geschossen, die datenabhängige Herleitung, Immutabilität, manuelle
+  Änderungen und unverändert wirksame physikalische Grenzen. Die Oberfläche
+  wird mit
   q = 8,92 × positiver Oberflächenübertemperatur^1,1 begrenzt. Die
   berechnete Oberfläche darf im positiven Heizbetrieb auch die logarithmische Heizmitteltemperatur
   nicht überschreiten; physikalisch unmögliche Referenzpunkte liefern Fehler.
