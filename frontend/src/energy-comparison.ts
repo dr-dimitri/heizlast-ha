@@ -1,11 +1,16 @@
 import type { HassState } from "./types";
 
-export interface PriceInterval { start: string; end: string; priceCtPerKWh: number }
+export interface PriceInterval { start: string; end: string; priceCtPerKWh: number; lowTariff?: boolean }
+export interface MorningStorageOptions { tariffContext: ReadonlyArray<PriceInterval>; timezone: string }
+export const MORNING_STORAGE_CAPACITY_KWH = 6;
+export const MORNING_STORAGE_PRICE_CT_PER_KWH = 18;
 export interface PvEnergyInterval { start: string; end: string; energy_kwh: number | null }
 export interface ElectricityHour { time: string; electricityKWh: number | null }
 export interface ElectricityComparisonHour extends ElectricityHour {
   gridElectricityKWh: number | null;
   pvElectricityKWh: number | null;
+  storageElectricityKWh: number | null;
+  storageCostEuro: number | null;
   gridOnlyCostEuro: number | null;
   gridCostEuro: number | null;
   pvOpportunityCostEuro: number | null;
@@ -109,7 +114,8 @@ export function tariffIntervalsForHours(
     for (let index = 0; index < ordered.length - 1; index++) {
       const left = ordered[index], right = ordered[index + 1];
       const window = windows.find((value) => insideWindow(local((left + right) / 2).seconds, value));
-      output.push({ start: new Date(left).toISOString(), end: new Date(right).toISOString(), priceCtPerKWh: window?.price ?? base });
+      output.push({ start: new Date(left).toISOString(), end: new Date(right).toISOString(), priceCtPerKWh: window?.price ?? base,
+        lowTariff: window !== undefined && window.price < base });
     }
   }
   return output;
@@ -120,37 +126,101 @@ function parsedIntervals<T extends { start: string; end: string }>(values: Reado
   return values.map((value) => ({ start: validTime(value.start), end: validTime(value.end), value }));
 }
 
-/** Zeitgleiche Erzeugung gilt vereinfacht als für die Wärmepumpe verfügbar.
- * Haushaltslast und Batteriespeicher fehlen; PV ist kein kostenloser Strom.
+type StoragePlan = { status: "inactive" | "unknown" }
+  | { status: "active"; start: number; end: number; remainingKWh: number | null };
+
+/** Nur eindeutig belegte, lückenlose Zeitreihen erlauben eine Speicherannahme. */
+function completeIntervals<T>(values: ReadonlyArray<ParsedInterval<T>>, start: number, end: number, valid: (value: T) => boolean): boolean {
+  if (values.some((value) => !Number.isFinite(value.start) || !Number.isFinite(value.end) || value.end <= value.start)) return false;
+  const relevant = values.filter((value) => value.start < end && value.end > start);
+  const boundaries = [...new Set([start, end, ...relevant.flatMap((value) => [Math.max(start, value.start), Math.min(end, value.end)])])].sort((a, b) => a - b);
+  return boundaries.slice(0, -1).every((left, index) => {
+    const matching = relevant.filter((value) => value.start <= left && value.end >= boundaries[index + 1]);
+    return matching.length === 1 && valid(matching[0].value);
+  });
+}
+
+function morningStoragePlans(
+  hours: ReadonlyArray<ElectricityHour>, pv: ReadonlyArray<ParsedInterval<PvEnergyInterval>>,
+  options?: MorningStorageOptions,
+): { plans: Map<string, StoragePlan>; dayKey: (time: number) => string } {
+  const plans = new Map<string, StoragePlan>();
+  let formatter: Intl.DateTimeFormat;
+  try { formatter = new Intl.DateTimeFormat("en-CA", { timeZone: options?.timezone ?? "UTC", year: "numeric", month: "2-digit", day: "2-digit" }); }
+  catch { return { plans, dayKey: () => "" }; }
+  const dayKey = (time: number) => Number.isFinite(time) ? formatter.format(time) : "";
+  if (!options) return { plans, dayKey };
+  const context = parsedIntervals(options.tariffContext).sort((a, b) => a.start - b.start);
+  const groups = new Map<string, number[]>();
+  for (const hour of hours) {
+    const start = validTime(hour.time);
+    if (Number.isFinite(start)) groups.set(dayKey(start), [...(groups.get(dayKey(start)) ?? []), start]);
+  }
+  for (const [key, times] of groups) {
+    const start = Math.min(...times), end = Math.max(...times) + HOUR_MS;
+    plans.set(key, { status: "unknown" });
+    if (times.some((time, index) => index > 0 && time - times[index - 1] !== HOUR_MS)) continue;
+    if (!completeIntervals(context, start, end, (value) => finite(value.priceCtPerKWh))) continue;
+    // Festpreise und dynamische Reihen tragen keine belegten NT-Fenster.
+    if (!context.some((value) => value.value.lowTariff !== undefined)) { plans.set(key, { status: "inactive" }); continue; }
+    if (!completeIntervals(pv, start, end, (value) => finite(value.energy_kwh) && value.energy_kwh >= 0)) continue;
+    const firstPv = pv.filter((value) => value.end > start && value.start < end && value.value.energy_kwh! > 0)
+      .sort((a, b) => a.start - b.start)[0];
+    // Ohne belegten PV-Beginn wird kein Speicher bis in den Abend verlängert.
+    if (!firstPv || firstPv.start <= start) { plans.set(key, { status: "inactive" }); continue; }
+    if (!completeIntervals(context, start - 1, start, (value) => finite(value.priceCtPerKWh))) continue;
+    const transitions = context.slice(1).filter((value, index) => value.start === context[index].end
+      && context[index].value.lowTariff === true && value.value.lowTariff !== true
+      && value.start >= start && value.start < firstPv.start && dayKey(value.start) === key);
+    const last = transitions.at(-1);
+    plans.set(key, last ? { status: "active", start: last.start, end: firstPv.start, remainingKWh: MORNING_STORAGE_CAPACITY_KWH }
+      : { status: "inactive" });
+  }
+  return { plans, dayKey };
+}
+
+/** Zeitgleiche PV und optional einmalig morgens nutzbarer NT-Speicher.
+ * Haushaltslast und PV-Speicherung fehlen; PV kostet entgangene Einspeisung.
  */
 export function compareHeatingElectricity(
   hours: ReadonlyArray<ElectricityHour>, prices: ReadonlyArray<PriceInterval>,
   pv: ReadonlyArray<PvEnergyInterval> | null, feedInPriceCtPerKWh: number | null,
+  storage?: MorningStorageOptions,
 ): ElectricityComparison {
   const priceValues = parsedIntervals(prices), pvValues = parsedIntervals(pv ?? []);
   const invalidPriceBounds = priceValues.some((value) => !Number.isFinite(value.start) || !Number.isFinite(value.end) || value.end <= value.start);
   const invalidPvBounds = pvValues.some((value) => !Number.isFinite(value.start) || !Number.isFinite(value.end) || value.end <= value.start);
   const seen = new Set<number>();
+  const { plans, dayKey } = morningStoragePlans(hours, pvValues, storage);
   let validHours = hours.every((hour, index) => Number.isFinite(validTime(hour.time))
     && (index === 0 || validTime(hour.time) - validTime(hours[index - 1].time) === HOUR_MS));
   const results = hours.map((hour): ElectricityComparisonHour => {
     const start = validTime(hour.time), end = start + HOUR_MS;
+    const storagePlan: StoragePlan = plans.get(dayKey(start)) ?? { status: storage ? "unknown" : "inactive" };
+    const inStorageWindow = (left: number, right: number) => storagePlan.status === "active" && left < storagePlan.end && right > storagePlan.start;
     const energy = finite(hour.electricityKWh) && hour.electricityKWh >= 0 ? hour.electricityKWh : null;
     const empty: ElectricityComparisonHour = { time: hour.time, electricityKWh: energy, gridElectricityKWh: null, pvElectricityKWh: null,
-      gridOnlyCostEuro: null, gridCostEuro: null, pvOpportunityCostEuro: null, totalCostEuro: null };
+      storageElectricityKWh: null, storageCostEuro: null, gridOnlyCostEuro: null, gridCostEuro: null, pvOpportunityCostEuro: null, totalCostEuro: null };
     if (!Number.isFinite(start) || seen.has(start)) { validHours = false; return { ...empty, electricityKWh: null }; }
     seen.add(start);
-    if (energy === null) return empty;
+    if (energy === null) {
+      if (storagePlan.status === "active" && inStorageWindow(start, end)) storagePlan.remainingKWh = null;
+      return empty;
+    }
     if (energy === 0) return { ...empty, gridElectricityKWh: 0, pvElectricityKWh: 0, gridOnlyCostEuro: 0,
-      gridCostEuro: 0, pvOpportunityCostEuro: 0, totalCostEuro: 0 };
+      storageElectricityKWh: 0, storageCostEuro: 0, gridCostEuro: 0, pvOpportunityCostEuro: 0, totalCostEuro: 0 };
     const relevantPrices = priceValues.filter((value) => value.start < end && value.end > start);
     const relevantPv = pvValues.filter((value) => value.start < end && value.end > start);
     const boundaries = new Set([start, end]);
     for (const value of [...relevantPrices, ...relevantPv]) {
       boundaries.add(Math.max(start, value.start)); boundaries.add(Math.min(end, value.end));
     }
+    if (storagePlan.status === "active") for (const boundary of [storagePlan.start, storagePlan.end]) {
+      if (boundary > start && boundary < end) boundaries.add(boundary);
+    }
     const ordered = [...boundaries].sort((a, b) => a - b);
-    let gridOnlyCost = 0, gridCost = 0, pvEnergy = 0, gridEnergy = 0;
+    let gridOnlyCost = 0, gridCost = 0, pvEnergy = 0, gridEnergy = 0, storageEnergy = 0;
+    let storageComplete = true, gridEnergyComplete = true;
     let priceComplete = !invalidPriceBounds, pvComplete = pv !== null && !invalidPvBounds, gridCostComplete = true;
     for (let index = 0; index < ordered.length - 1; index++) {
       const left = ordered[index], right = ordered[index + 1], demand = energy * ((right - left) / HOUR_MS);
@@ -160,10 +230,29 @@ export function compareHeatingElectricity(
       const pvValue = matchingPv.length === 1 && finite(matchingPv[0].value.energy_kwh) && matchingPv[0].value.energy_kwh >= 0 ? matchingPv[0] : null;
       if (price === null) priceComplete = false;
       else gridOnlyCost += demand * (price / 100);
-      if (!pvValue) { pvComplete = false; continue; }
+      if (!pvValue) {
+        pvComplete = false;
+        if (storagePlan.status === "active" && inStorageWindow(left, right)) { storagePlan.remainingKWh = null; storageComplete = false; }
+        continue;
+      }
       const produced = pvValue.value.energy_kwh! * ((right - left) / (pvValue.end - pvValue.start));
-      const used = Math.min(demand, produced), grid = Math.max(0, demand - used);
-      pvEnergy += used; gridEnergy += grid;
+      const used = Math.min(demand, produced), residual = Math.max(0, demand - used);
+      pvEnergy += used;
+      if (storagePlan.status === "unknown") {
+        if (residual > 0) { storageComplete = false; gridEnergyComplete = false; gridCostComplete = false; }
+        continue;
+      }
+      let stored = 0;
+      if (storagePlan.status === "active" && inStorageWindow(left, right)) {
+        if (storagePlan.remainingKWh === null || price === null) {
+          storagePlan.remainingKWh = null; storageComplete = false; gridEnergyComplete = false; gridCostComplete = false; continue;
+        }
+        stored = Math.min(residual, storagePlan.remainingKWh);
+        storagePlan.remainingKWh -= stored;
+        storageEnergy += stored;
+      }
+      const grid = Math.max(0, residual - stored);
+      gridEnergy += grid;
       if (grid === 0) continue;
       if (price === null) gridCostComplete = false;
       else gridCost += grid * (price / 100);
@@ -171,9 +260,11 @@ export function compareHeatingElectricity(
     const opportunity = !pvComplete ? null : pvEnergy === 0 ? 0
       : finite(feedInPriceCtPerKWh) ? pvEnergy * (feedInPriceCtPerKWh / 100) : null;
     const knownGridCost = pvComplete && gridCostComplete && !invalidPriceBounds ? gridCost : null;
-    const total = knownGridCost !== null && opportunity !== null ? knownGridCost + opportunity : null;
+    const storageCost = storageComplete && pvComplete ? storageEnergy * (MORNING_STORAGE_PRICE_CT_PER_KWH / 100) : null;
+    const total = knownGridCost !== null && opportunity !== null && storageCost !== null ? knownGridCost + opportunity + storageCost : null;
     const safe = (value: number | null) => value !== null && Number.isFinite(value) ? value : null;
-    return { ...empty, gridElectricityKWh: pvComplete ? safe(gridEnergy) : null, pvElectricityKWh: pvComplete ? safe(pvEnergy) : null,
+    return { ...empty, gridElectricityKWh: pvComplete && gridEnergyComplete ? safe(gridEnergy) : null, pvElectricityKWh: pvComplete ? safe(pvEnergy) : null,
+      storageElectricityKWh: storageComplete && pvComplete ? safe(storageEnergy) : null, storageCostEuro: safe(storageCost),
       gridOnlyCostEuro: priceComplete ? safe(gridOnlyCost) : null, gridCostEuro: safe(knownGridCost),
       pvOpportunityCostEuro: safe(opportunity), totalCostEuro: safe(total) };
   });
@@ -183,6 +274,6 @@ export function compareHeatingElectricity(
     return Number.isFinite(value) ? value : null;
   };
   return { hours: results, electricityKWh: sum("electricityKWh"), gridElectricityKWh: sum("gridElectricityKWh"),
-    pvElectricityKWh: sum("pvElectricityKWh"), gridOnlyCostEuro: sum("gridOnlyCostEuro"), gridCostEuro: sum("gridCostEuro"),
+    pvElectricityKWh: sum("pvElectricityKWh"), storageElectricityKWh: sum("storageElectricityKWh"), storageCostEuro: sum("storageCostEuro"), gridOnlyCostEuro: sum("gridOnlyCostEuro"), gridCostEuro: sum("gridCostEuro"),
     pvOpportunityCostEuro: sum("pvOpportunityCostEuro"), totalCostEuro: sum("totalCostEuro") };
 }
