@@ -27,8 +27,9 @@ Diese Vorgaben gelten für das gesamte Repository.
 - Es gibt ausschließlich diesen einen fest implementierten Grundriss. Keine
   Neuanlage, kein Import und keine Geometriebearbeitung für eigene Grundrisse
   anbieten. Am festen Plan sind nur Sensorzuordnungen und feste Raumtemperaturen
-  der elf Rechenzonen veränderbar. Der zusätzliche Simulationstab verändert
-  ausschließlich die Auswahl von Tag und Stunde, nicht den Planungsdatensatz.
+  der elf Rechenzonen veränderbar. Der zusätzliche Simulationstab bietet die
+  Auswahl von Tag und Stunde sowie einen separat gespeicherten Gaspreis für
+  die Kostenschätzung; der Planungsdatensatz wird dadurch nicht verändert.
 - Dargestellt wird ausschließlich das beheizte Wohnhaus. Spitzboden,
   Technikraum, Gerätelager und Garage bleiben außerhalb des Dashboards.
 
@@ -158,7 +159,7 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
 ### Versionierung und Paketinhalt
 
 - `VERSION` ist die zentrale Projektversion im Format `MAJOR.MINOR.PATCH`,
-  aktuell `0.18.0`. Für eine neue Implementierung die Version nach SemVer
+  aktuell `0.19.0`. Für eine neue Implementierung die Version nach SemVer
   erhöhen. Jeder Merge benötigt eine bisher unveröffentlichte Version für das
   verpflichtende HACS-Release; reine Dokumentationsänderungen erhöhen mindestens
   die Patch-Version. CI-Builds erhalten zusätzlich eine eindeutige Buildkennung.
@@ -242,7 +243,8 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   festen Grundriss. Das Frontend bündelt keine Import-/Editor-Module oder
   zugehörige Bibliotheken mehr.
 - Der authentifizierte Leseendpunkt `heizlast_ha/get_project` liefert nur
-  `revision`, `planning_bindings` und `planning_temperatures`.
+  `revision`, `planning_bindings`, `planning_temperatures` und bei hinterlegtem
+  Gaspreis zusätzlich `gas_price_ct_per_kwh`.
   `heizlast_ha/save_planning_bindings`
   erfordert Administratorrechte und eine aktuelle optimistische Projekt-Revision.
   Änderungen sind auf Sensorzuordnungen und feste Raumtemperaturen der elf
@@ -256,6 +258,14 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   Neue Zuordnungen müssen echte Temperatursensoren sein; historische
   Zuordnungen bleiben lesbar. `heizlast_ha/save_project` wird nicht registriert;
   eigene Raumgeometrie lässt sich auch über die API nicht mehr hinzufügen.
+- `heizlast_ha/save_gas_price` speichert unabhängig von Raumänderungen einen
+  optionalen Brutto-Arbeitspreis in ct/kWh. Administratorrechte und aktuelle
+  gemeinsame Projekt-Revision sind erforderlich; endliche Zahlen ab null sind
+  gültig, `null` löscht den Preis. Speicherung, Konflikte und Speicherfehler
+  verwenden denselben dauerhaften Speichermechanismus wie Raumeinstellungen.
+  Raumänderungen erhalten den Preis, Preisänderungen Raumkonfiguration und
+  ungenutzte Altdaten. Alte Speicherstände ohne Preis bleiben ohne Umschreiben
+  lesbar. Normale Benutzer sehen den hinterlegten Preis und die Tageskosten.
 - Sensorzuordnungen und feste Raumtemperaturen werden dauerhaft in
   Home Assistant gespeichert. Vorhandene
   eigene Pläne und deren alte Sensorzuordnungen bleiben bei Updates intern
@@ -333,14 +343,28 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   Stündliche Wetterdaten kommen über `heizlast_ha/get_weather` aus dem gemeinsamen
   Open-Meteo-Cache. Raumtemperaturen folgen genau den Live-Regeln einschließlich
   Sensorvorrang, Einheitenumrechnung und unbekannten Werten. Die Simulation
-  verändert keine Sensoren, Zuordnungen oder Planungsdaten. Diagramm und Tabelle
-  zeigen je Stunde Gebäudeheizlast und nötigen gemeinsamen Vorlauf, daneben
-  Raumwerte für die gewählte Stunde. Fehlende Daten bleiben ?, Heizbedarf null
+  verändert keine Sensoren, Zuordnungen oder Planungsdaten. Das Diagramm zeigt
+  je Stunde Gebäudeheizlast auf der linken Achse sowie nötigen gemeinsamen
+  Vorlauf und Außentemperatur auf derselben rechten Celsiusachse, die auch
+  negative Werte umfasst. Eine Stundenwertliste gibt es nicht. Auswahl im
+  Diagramm oder Stundenfeld zeigt Vorlauf, Außentemperatur und Raumwerte der
+  gewählten Stunde. Fehlende Daten bleiben ?, Heizbedarf null
   zeigt Heizung aus, nicht erreichbarer Vorlauf bleibt ausdrücklich unbekannt.
   Tagesenergie wird nur bei vollständigen Stundenwerten summiert. Datum und
   Stunde bleiben beim Tab-/Geschosswechsel erhalten. Tests prüfen Quellen-
   gleichheit mit Live, unterschiedliche Raumtemperaturen, Datenlücken,
   Wetterfehler, Wiederholung, Rechte, Zeitumstellung und aktualisierte Sensoren.
+  Der Tagesgasbedarf ist Tageswärmebedarf / 0,95 mit fester Annahme 95 %
+  Nutzungsgrad einer modernen Brennwerttherme bezogen auf den Brennwert.
+  Tageskosten sind ungerundeter Gasbedarf × Brutto-Arbeitspreis in ct/kWh / 100
+  in Euro. Dies ist nur eine Modellschätzung für Raumheizung, keine Prognose
+  des tatsächlichen Gaszählers. Warmwasser, Grundpreis, Hilfsstrom sowie
+  zusätzliche Verteil-/Speicherverluste fehlen. Bei nicht erreichbarem Vorlauf
+  bleibt es ein rechnerischer Brennstoffbedarf, keine Betriebsprognose.
+  Ohne vollständigen Tageswärmebedarf sind Verbrauch und Kosten unbekannt;
+  ohne Preis nur die Kosten. Nullbedarf und Nullpreis bleiben gültige Nullen.
+  Tests prüfen Umrechnung, Lücken, Nullwerte, ungültige Eingaben, Speicherung,
+  Leserechte, Verwerfen, Konflikte, Speicherfehler und Erhalt der Raumdaten.
   Panel und alte Kartenkennung
   dürfen ausschließlich den festen Grundriss anzeigen und keine Möglichkeit
   zum Hinzufügen oder Importieren eines anderen Plans bieten.

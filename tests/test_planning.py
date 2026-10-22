@@ -15,12 +15,93 @@ from custom_components.heizlast_ha.const import DOMAIN, STORAGE_KEY
 from custom_components.heizlast_ha.planning import (
     PLANNING_ZONE_IDS,
     ProjectError,
+    validate_gas_price,
     validate_planning_bindings,
     validate_planning_temperatures,
 )
 from custom_components.heizlast_ha.project import Project
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations", "bundled_card")
+
+
+@pytest.mark.parametrize("price", [True, "12", -1, float("nan"), float("inf"), 10**400])
+def test_gas_price_rejects_invalid_values(price):
+    with pytest.raises(ProjectError):
+        validate_gas_price(price)
+
+
+async def test_gas_price_persists_survives_room_edits_and_can_be_cleared(
+    hass, entry, hass_ws_client, hass_read_only_access_token
+):
+    ws = await hass_ws_client(hass)
+    project = get_project(hass)
+    project.data["legacy_metadata"] = {"retained": True}
+    saved = await send(ws, 1, "save_gas_price", revision=0, gas_price_ct_per_kwh=12.5)
+    assert saved["result"]["gas_price_ct_per_kwh"] == 12.5
+    assert "legacy_metadata" not in saved["result"]
+    readonly = await hass_ws_client(hass, access_token=hass_read_only_access_token)
+    assert (await send(readonly, 1, "get_project"))["result"] == saved["result"]
+    rejected = await send(
+        readonly, 2, "save_gas_price", revision=1, gas_price_ct_per_kwh=10
+    )
+    assert rejected["error"]["code"] == "unauthorized"
+    rooms = await send(
+        ws, 2, "save_planning_bindings", revision=1, bindings={}, temperatures={"5": 22}
+    )
+    assert rooms["result"]["gas_price_ct_per_kwh"] == 12.5
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    assert get_project(hass).snapshot() == rooms["result"]
+    zero = await send(ws, 3, "save_gas_price", revision=2, gas_price_ct_per_kwh=0)
+    assert zero["result"]["gas_price_ct_per_kwh"] == 0
+    assert zero["result"]["planning_temperatures"] == {"5": 22}
+    cleared = await send(ws, 4, "save_gas_price", revision=3, gas_price_ct_per_kwh=None)
+    assert "gas_price_ct_per_kwh" not in cleared["result"]
+    fresh = Project(hass)
+    await fresh.async_load()
+    assert fresh.snapshot() == cleared["result"]
+    assert fresh.data["legacy_metadata"] == {"retained": True}
+
+
+async def test_gas_price_conflicts_validation_and_storage_failure_keep_existing_data(
+    hass, entry, hass_ws_client
+):
+    ws = await hass_ws_client(hass)
+    before = get_project(hass).snapshot()
+    for message_id, revision, price, code in [
+        (1, 1, 12.5, "conflict"),
+        (2, 0, -1, "invalid_project"),
+        (3, 0, True, "invalid_project"),
+    ]:
+        rejected = await send(
+            ws,
+            message_id,
+            "save_gas_price",
+            revision=revision,
+            gas_price_ct_per_kwh=price,
+        )
+        assert rejected["error"]["code"] == code
+        assert get_project(hass).snapshot() == before
+    with patch.object(
+        Store, "_write_prepared_data", side_effect=WriteError("full disk")
+    ):
+        rejected = await send(
+            ws, 4, "save_gas_price", revision=0, gas_price_ct_per_kwh=12.5
+        )
+    assert rejected["error"]["code"] == "storage_error"
+    assert get_project(hass).snapshot() == before
+    fresh = Project(hass)
+    await fresh.async_load()
+    assert fresh.snapshot() == before
+
+
+async def test_corrupt_stored_gas_price_is_rejected_without_rewriting(hass, entry):
+    project = get_project(hass)
+    await project.store.async_save({**project.snapshot(), "gas_price_ct_per_kwh": -1})
+    path = Path(project.store.path)
+    before = path.read_bytes()
+    with pytest.raises(ProjectError):
+        await Project(hass).async_load()
+    assert path.read_bytes() == before
 
 
 @pytest.mark.parametrize(

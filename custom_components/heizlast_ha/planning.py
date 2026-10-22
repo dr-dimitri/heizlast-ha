@@ -32,6 +32,15 @@ PLANNING_ZONE_IDS = frozenset(str(zone_id) for zone_id in range(1, 12))
 SENSOR_ENTITY_ID = re.compile(r"sensor\.[a-z0-9_]+\Z")
 
 
+def validate_gas_price(value: Any) -> float | None:
+    """Accept a nonnegative gas work price in ct/kWh, or an unset price."""
+    if value is not None and (
+        type(value) not in (int, float) or not 0 <= value <= sys.float_info.max
+    ):
+        raise ProjectError("Gaspreis: Eine endliche Zahl ab 0 ct/kWh eingeben.")
+    return value
+
+
 def validate_planning_temperatures(temperatures: Any) -> dict[str, float]:
     """Accept explicit Celsius values only for the fixed calculation zones."""
     if not isinstance(temperatures, dict):

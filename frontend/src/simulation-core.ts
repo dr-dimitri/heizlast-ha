@@ -584,6 +584,19 @@ export interface HeatingHour {
 }
 export interface HeatingDay { hours: HeatingHour[]; heatEnergyKWh: number | null; missingZoneIds: number[] }
 
+/** Assumed useful heat / gross gas energy for a modern condensing boiler. */
+export const CONDENSING_BOILER_EFFICIENCY = 0.95;
+
+/** Heating only; no hot water, standing charge or auxiliary electricity. */
+export function estimateGasUse(heatEnergyKWh: number | null, priceCtPerKWh: number | null) {
+  const gas = heatEnergyKWh !== null && Number.isFinite(heatEnergyKWh) && heatEnergyKWh >= 0
+    ? heatEnergyKWh / CONDENSING_BOILER_EFFICIENCY : null;
+  const gasEnergyKWh = gas !== null && Number.isFinite(gas) ? gas : null;
+  const cost = gasEnergyKWh !== null && priceCtPerKWh !== null && Number.isFinite(priceCtPerKWh) && priceCtPerKWh >= 0
+    ? gasEnergyKWh * (priceCtPerKWh / 100) : null;
+  return { gasEnergyKWh, costEuro: cost !== null && Number.isFinite(cost) ? cost : null };
+}
+
 /** A search boundary, not a recommendation to operate the installation at 60 °C. */
 export const MAX_REQUIRED_SUPPLY_C = 60;
 

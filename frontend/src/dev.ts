@@ -20,7 +20,11 @@ let hass: HomeAssistant = {
     if (message.type === "heizlast_ha/get_weather") return { timezone: "UTC", fetched_at: null, days: [] } as T;
     if (readOnly) throw { code: "unauthorized" };
     if (message.revision !== project.revision) throw { code: "conflict" };
-    if (message.type === "heizlast_ha/save_planning_bindings") {
+    if (message.type === "heizlast_ha/save_gas_price") {
+      project = { ...project, revision: project.revision + 1 };
+      if (message.gas_price_ct_per_kwh === null) delete project.gas_price_ct_per_kwh;
+      else project.gas_price_ct_per_kwh = message.gas_price_ct_per_kwh as number;
+    } else if (message.type === "heizlast_ha/save_planning_bindings") {
       const bindings = clone(message.bindings) as Record<string, string[]>;
       if (Object.values(bindings).some((ids) => ids.length)) throw { code: "invalid_bindings" };
       project = { ...project, revision: project.revision + 1, planning_bindings: bindings, planning_temperatures: clone(message.temperatures) as Record<string, number> };

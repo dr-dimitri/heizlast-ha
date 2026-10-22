@@ -79,9 +79,35 @@ def ws_get_weather(
     connection.send_result(msg["id"], weather.forecast_snapshot())
 
 
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/save_gas_price",
+        vol.Required("revision"): int,
+        vol.Required("gas_price_ct_per_kwh"): vol.Any(None, int, float),
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_save_gas_price(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Save the gas work price with the same project concurrency protection."""
+    try:
+        result = await get_project(hass).async_save_gas_price(
+            msg["revision"], msg["gas_price_ct_per_kwh"]
+        )
+    except ProjectError as err:
+        connection.send_error(msg["id"], err.code, str(err))
+        return
+    connection.send_result(msg["id"], result)
+
+
 @callback
 def async_register_api(hass: HomeAssistant) -> None:
     """Register once; handlers look up the active project on every request."""
     websocket_api.async_register_command(hass, ws_get_project)
     websocket_api.async_register_command(hass, ws_save_planning_bindings)
+    websocket_api.async_register_command(hass, ws_save_gas_price)
     websocket_api.async_register_command(hass, ws_get_weather)

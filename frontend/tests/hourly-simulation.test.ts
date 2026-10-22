@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { planningData } from "../src/planning-types";
 import { heatLossW, solarGainsFromFacadesW } from "../src/thermal-model";
-import { simulateHeatingDay, simulateBuilding, defaultSimulationParameters, defaultSimulationScenario, type HourlyWeather } from "../src/simulation-core";
+import { estimateGasUse, simulateHeatingDay, simulateBuilding, defaultSimulationParameters, defaultSimulationScenario, type HourlyWeather } from "../src/simulation-core";
 
 const temperatures = () => Object.fromEntries(planningData.zones.map((zone) => [zone.id, 22]));
 const weather = (outdoorTemperatureC = 0, solar = 0): HourlyWeather[] => Array.from({ length: 24 }, (_, hour) => ({
@@ -11,6 +11,17 @@ const weather = (outdoorTemperatureC = 0, solar = 0): HourlyWeather[] => Array.f
 }));
 
 describe("weather-driven hourly heating curve", () => {
+  it("converts useful heat to gross gas energy and work-price costs without rounding or replacing gaps", () => {
+    expect(estimateGasUse(95, 12.5)).toEqual({ gasEnergyKWh: 100, costEuro: 12.5 });
+    expect(estimateGasUse(0, 12.5)).toEqual({ gasEnergyKWh: 0, costEuro: 0 });
+    expect(estimateGasUse(95, 0)).toEqual({ gasEnergyKWh: 100, costEuro: 0 });
+    expect(estimateGasUse(95, null)).toEqual({ gasEnergyKWh: 100, costEuro: null });
+    for (const invalid of [null, NaN, Infinity, -1]) expect(estimateGasUse(invalid, 12.5)).toEqual({ gasEnergyKWh: null, costEuro: null });
+    for (const invalid of [NaN, Infinity, -1]) expect(estimateGasUse(95, invalid)).toEqual({ gasEnergyKWh: 100, costEuro: null });
+    expect(estimateGasUse(Number.MAX_VALUE, 10)).toEqual({ gasEnergyKWh: null, costEuro: null });
+    expect(estimateGasUse(95, Number.MAX_VALUE).costEuro).toBeCloseTo(Number.MAX_VALUE);
+    expect(estimateGasUse(950, Number.MAX_VALUE).costEuro).toBeNull();
+  });
   it("uses the live heat-loss and solar functions every hour and conserves energy with different room temperatures", () => {
     const inputs = weather(3, 100), rooms = temperatures(); rooms[7] = 24; rooms[6] = 20;
     inputs[12].outdoorTemperatureC = 10;

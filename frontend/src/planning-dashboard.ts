@@ -4,7 +4,7 @@ import { planningData, floorLoad, floorName, polygonPoints, shapesForZone, zones
 import { bindingFor, clone, entityName, formatNumber, measuredTemperatureLabel, outdoorTemperatureLabel, roleSensor, solarRadiationLabel, temperatureCelsius, temperatureSensors, type CardConfig, type HomeAssistant, type Project } from "./types";
 import { solarGainsW } from "./heat-load";
 import { heatLossW } from "./thermal-model";
-import { simulateHeatingDay, MAX_REQUIRED_SUPPLY_C, type HeatingDay, type HeatingHour, type WeatherForecast, type SimulationResult, type ZoneSimulationResult } from "./simulation-core";
+import { simulateHeatingDay, estimateGasUse, CONDENSING_BOILER_EFFICIENCY, MAX_REQUIRED_SUPPLY_C, type HeatingDay, type HeatingHour, type WeatherForecast, type SimulationResult, type ZoneSimulationResult } from "./simulation-core";
 import { renderHeatingChart } from "./heating-chart";
 
 export class HeizlastGrundrissCard extends LitElement {
@@ -14,6 +14,7 @@ export class HeizlastGrundrissCard extends LitElement {
     project: { state: true }, bindings: { state: true }, temperatures: { state: true }, loading: { state: true }, busy: { state: true },
     error: { state: true }, conflict: { state: true }, notice: { state: true }, sensorSearch: { state: true },
     selectedView: { state: true }, forecast: { state: true }, forecastError: { state: true }, forecastLoading: { state: true }, selectedDate: { state: true }, selectedHour: { state: true },
+    gasPrice: { state: true },
   };
   hass?: HomeAssistant;
   private config: CardConfig = { type: "custom:heizlast-grundriss-card" };
@@ -25,6 +26,7 @@ export class HeizlastGrundrissCard extends LitElement {
   private forecastLoading = false;
   private selectedDate = "";
   private selectedHour = 0;
+  private gasPrice = "";
   private forecastTimer?: ReturnType<typeof setInterval>;
   private forecastExpiry?: ReturnType<typeof setTimeout>;
   private forecastRequest = 0;
@@ -50,6 +52,9 @@ export class HeizlastGrundrissCard extends LitElement {
     return Object.fromEntries(Object.entries(this.temperatures).filter(([, value]) => value !== "").map(([key, value]) => [key, this.simulationNumber(value)]));
   }
   private get invalidTemperatures(): boolean { return Object.values(this.temperatureValues).some((value) => !Number.isFinite(value) || value < -273.15); }
+  private get gasPriceValue(): number | null { return this.gasPrice.trim() === "" ? null : this.simulationNumber(this.gasPrice.replace(",", ".")); }
+  private get invalidGasPrice(): boolean { return this.gasPriceValue !== null && (!Number.isFinite(this.gasPriceValue) || this.gasPriceValue < 0); }
+  private get gasPriceDirty(): boolean { return this.invalidGasPrice || this.gasPriceValue !== (this.project?.gas_price_ct_per_kwh ?? null); }
   private resetDraft(): void {
     this.bindings = clone(this.project?.planning_bindings ?? {});
     this.temperatures = Object.fromEntries(Object.entries(this.project?.planning_temperatures ?? {}).filter(([key]) => !bindingFor(this.bindings, key).length).map(([key, value]) => [key, String(value)]));
@@ -168,6 +173,7 @@ export class HeizlastGrundrissCard extends LitElement {
 
   private renderSimulationControls() {
     const day = this.heatingDay, hour = this.hour;
+    const gas = estimateGasUse(day.heatEnergyKWh, this.gasPriceValue);
     return html`<section class="scenario" aria-label="Tagessimulation">
       <h2>Heizkurve im Tagesverlauf</h2>
       <p class="hint">Stündliche Wettervorhersage von <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a> · Raumtemperaturen und Gebäudedaten aus Live · Auflösung 1 Stunde.</p>
@@ -179,8 +185,16 @@ export class HeizlastGrundrissCard extends LitElement {
       ${day.hours.some((value) => value.status === "unreachable") ? html`<p class="notice warning" role="status">Der Bedarf einzelner Räume ist innerhalb der Modellgrenzen nicht erreichbar. Auch bis ${MAX_REQUIRED_SUPPLY_C} °C Vorlauf wird keine ausreichende Leistung gefunden; die Oberflächengrenze bleibt wirksam. Dies ist keine Betriebsempfehlung.</p>` : nothing}
       ${day.hours.some((value) => value.status === "invalid_model") ? html`<p class="notice error" role="alert">Die gemeinsamen FBH-Planungsdaten reichen für diese Berechnung nicht aus.</p>` : nothing}
       ${renderHeatingChart(day.hours, (time) => this.hourLabel(time), this.selectedHour, (index) => this.selectedHour = index)}
-      <div class="curve-summary"><span>Wärmebedarf am Tag <strong>${day.heatEnergyKWh === null ? "?" : `≈ ${this.number(day.heatEnergyKWh, 1)} kWh`}</strong></span><span>Vorlauf ${hour ? this.hourLabel(hour.time) : ""} <strong>${this.supplyLabel(hour)}</strong></span></div>
-      <details><summary>Stundenwerte anzeigen</summary><div class="hour-table"><table><caption>Gesamtes Wohnhaus · stündliche Heizlast und nötiger Vorlauf</caption><thead><tr><th>Stunde</th><th>Außen</th><th>Globalstrahlung</th><th>Heizlast</th><th>Nötiger Vorlauf</th></tr></thead><tbody>${day.hours.map((value, index) => html`<tr aria-selected=${index === this.selectedHour}><td><button aria-label=${`Stunde ${this.hourLabel(value.time)} auswählen`} @click=${() => this.selectedHour = index}>${this.hourLabel(value.time)}</button></td><td>${value.outdoorTemperatureC === null ? "?" : `${this.number(value.outdoorTemperatureC)} °C`}</td><td>${value.globalIrradianceWPerM2 === null ? "?" : `${this.number(value.globalIrradianceWPerM2, 0)} W/m²`}</td><td>${this.watts(value.heatDemandW)}</td><td>${this.supplyLabel(value)}</td></tr>`)}</tbody></table></div></details>
+      <div class="curve-summary"><span>Wärmebedarf am Tag <strong>${day.heatEnergyKWh === null ? "?" : `≈ ${this.number(day.heatEnergyKWh, 1)} kWh`}</strong></span><span>Vorlauf ${hour ? this.hourLabel(hour.time) : ""} <strong>${this.supplyLabel(hour)}</strong></span><span>Außen ${hour ? this.hourLabel(hour.time) : ""} <strong>${hour?.outdoorTemperatureC == null ? "?" : `${this.number(hour.outdoorTemperatureC)} °C`}</strong></span></div>
+      <div class="gas-estimate">
+        <h3>Gasverbrauch und Kosten am gewählten Tag</h3>
+        <div class="curve-summary"><span>Geschätzter Gasverbrauch <strong class="gas-energy">${gas.gasEnergyKWh === null ? "?" : `≈ ${this.number(gas.gasEnergyKWh, 1)} kWh`}</strong></span><span>Gesamte Gaskosten am Tag <strong class="gas-cost">${gas.costEuro === null ? "?" : `≈ ${formatNumber(gas.costEuro, this.hass, { style: "currency", currency: "EUR" })}`}</strong></span></div>
+        <label class="gas-price-label" for="gas-price">Gaspreis · Arbeitspreis (ct/kWh)</label>
+        <input id="gas-price" type="text" inputmode="decimal" placeholder="Nicht hinterlegt" aria-invalid=${this.invalidGasPrice} aria-describedby="gas-price-hint" .value=${this.gasPrice} ?disabled=${!this.admin || !this.project || this.loading || this.busy || this.conflict} @input=${(event: Event) => { if (this.admin && this.project && !this.loading && !this.busy && !this.conflict) { this.gasPrice = (event.target as HTMLInputElement).value; this.notice = ""; } }}/>
+        <p id="gas-price-hint" class="hint">${this.invalidGasPrice ? "Eine endliche Zahl ab 0 ct/kWh eingeben." : "Brutto-Arbeitspreis aus dem Gastarif eingeben. Ohne Preis bleiben die Kosten unbekannt."} ${this.admin ? "Der Preis wird erst beim Speichern dauerhaft in Home Assistant hinterlegt." : "Nur Administratoren können den gespeicherten Gaspreis ändern."}</p>
+        ${this.admin ? html`<div class="actions"><button ?disabled=${!this.project || this.loading || this.busy || this.conflict || !this.gasPriceDirty || this.invalidGasPrice} @click=${() => void this.saveGasPrice()}>Gaspreis speichern</button><button ?disabled=${this.busy || !this.gasPriceDirty} @click=${() => this.gasPrice = String(this.project?.gas_price_ct_per_kwh ?? "")}>Gaspreis verwerfen</button></div>` : nothing}
+        <p class="hint">Annahme moderne Brennwerttherme: ${CONDENSING_BOILER_EFFICIENCY * 100} % Nutzungsgrad bezogen auf den Brennwert. Gasbedarf = Wärmebedarf ÷ ${this.number(CONDENSING_BOILER_EFFICIENCY, 2)}; Tageskosten in Euro = Gasbedarf × Arbeitspreis ÷ 100. Nur Raumheizung, ohne Warmwasser, Grundpreis und Hilfsstrom. Zusätzliche Verteil- und Speicherverluste sind nicht modelliert. Bei unvollständigem Tagesbedarf bleiben Verbrauch und Kosten ?. Auch bei nicht erreichbarem Vorlauf ist dies nur der rechnerische Brennstoffbedarf zum Wärmebedarf.</p>
+      </div>
       <details><summary>Gemeinsame Modellgrundlage</summary><p class="hint">Planungsdaten, bestätigte Heizkreise und Solarbilanz entsprechen Live. Raumtemperaturen aus Sensoren oder festen Eingaben werden für den ganzen Tag konstant gehalten. FBH-Annahmen bleiben fest: 80 % aktive Fläche, 1,5 l/min je offenem Kreis, 6 m zusätzliche Anbindung, 0,15 m Heizstreifenbreite und 29 °C maximale Bodenoberfläche. Referenzkennlinie aus der bestehenden Kalibrierannahme bei 22 °C innen und −9 °C außen mit dem belegten Vorlauf/Rücklauf. Unbekannte Anlagenwerte bleiben Annahmen, keine Messungen.</p></details>
       <p class="hint">Der nötige gemeinsame Vorlauf richtet sich nach dem anspruchsvollsten Raum. Alle Kreise gelten als offen; Thermostatregelung und Wärmespeicherung sind nicht modelliert. Wetterwerte sind Vorhersagedaten. Die Kurve ist eine stationäre Näherung, keine Heizungssteuerung oder Raumtemperaturprognose.</p>
     </section>${this.renderSimulationMetrics()}`;
@@ -247,6 +261,7 @@ export class HeizlastGrundrissCard extends LitElement {
     try {
       this.project = await this.hass.callWS<Project>({ type: "heizlast_ha/get_project" });
       this.resetDraft();
+      this.gasPrice = String(this.project.gas_price_ct_per_kwh ?? "");
       this.conflict = false;
     } catch { this.error = "Sensorzuordnungen konnten nicht geladen werden. Die Planungsdaten bleiben sichtbar."; }
     finally { this.loading = false; }
@@ -300,6 +315,20 @@ export class HeizlastGrundrissCard extends LitElement {
     } finally { this.busy = false; }
   }
 
+  private async saveGasPrice(): Promise<void> {
+    if (!this.hass || !this.admin || !this.project || !this.gasPriceDirty || this.invalidGasPrice || this.busy || this.conflict) return;
+    this.busy = true; this.error = ""; this.notice = "";
+    try {
+      this.project = await this.hass.callWS<Project>({ type: "heizlast_ha/save_gas_price", revision: this.project.revision, gas_price_ct_per_kwh: this.gasPriceValue });
+      this.gasPrice = String(this.project.gas_price_ct_per_kwh ?? "");
+      this.notice = "Gaspreis in Home Assistant gespeichert.";
+    } catch (error) {
+      const code = typeof error === "object" && error && "code" in error ? String(error.code) : "";
+      this.conflict = code === "conflict";
+      this.error = this.conflict ? "Das Projekt wurde zwischenzeitlich geändert. Laden Sie die aktuellen Einstellungen und prüfen Sie den Gaspreis erneut." : code === "unauthorized" ? "Zum Speichern sind Administratorrechte erforderlich." : "Gaspreis konnte nicht gespeichert werden. Bitte erneut versuchen.";
+    } finally { this.busy = false; }
+  }
+
   protected render() {
     const floorZones = zonesForFloor(this.selectedFloor);
     return html`<article class="dashboard">
@@ -307,8 +336,8 @@ export class HeizlastGrundrissCard extends LitElement {
       <div class="view-tabs" role="tablist" aria-label="Ansichten">${(["live", "simulation"] as const).map((view) => html`<button id=${`view-${view}`} role="tab" aria-selected=${this.selectedView === view} aria-controls="dashboard-view" tabindex=${this.selectedView === view ? 0 : -1} @click=${() => this.selectedView = view} @keydown=${(event: KeyboardEvent) => this.viewKeydown(event)}>${view === "live" ? "Live" : "Simulation"}</button>`)}</div>
       <div id="dashboard-view" role="tabpanel" aria-labelledby=${`view-${this.selectedView}`}>
       ${this.selectedView === "simulation" ? this.renderSimulationControls() : html`<section class="metrics" aria-label="Gebäude und Planung"><div class="metric"><div class="metric-label">Gebäudeheizlast</div><strong>${this.number(planningData.building.heat_load_w, 0)} <small>W</small></strong><p>Heizlastberechnung · S. ${planningData.sources.building.page} / ${planningData.sources.building.sheet}</p></div><div class="metric"><div class="metric-label">Summe der Raumheizlasten</div><strong>${this.number(planningData.room_heat_load_sum_w)} <small>W</small></strong><p>${planningData.zones.length} gemeinsame oder einzelne Rechenzonen</p></div><div class="metric"><div class="metric-label">Beheizte Nettofläche</div><strong>${this.number(planningData.building.heated_net_floor_area_m2)} <small>m²</small></strong><p>EG + OG · Flächen aus der Berechnung</p></div><div class="metric outdoor-temperature"><div class="metric-label">Außentemperatur</div><strong>${outdoorTemperatureLabel(this.hass)}</strong><p>Standort Home Assistant · <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a> · 30-Minuten-Abfrage</p></div><div class="metric solar-radiation"><div class="metric-label">Sonneneinstrahlung</div><strong>${solarRadiationLabel(this.hass)}</strong><p>Horizontale Globalstrahlung · Open-Meteo</p></div></section>`}
-      ${this.selectedView === "live" && this.error ? html`<div class="notice error" role="alert">${this.error}${this.conflict || !this.project ? html`<br/><button ?disabled=${this.loading || this.busy} @click=${() => void this.loadProject()}>${this.conflict ? "Aktuelle Zuordnungen laden" : "Erneut laden"}</button>` : nothing}</div>` : nothing}
-      ${this.selectedView === "live" && this.notice ? html`<div class="notice" role="status">${this.notice}</div>` : nothing}
+      ${this.error ? html`<div class="notice error" role="alert">${this.error}${this.conflict || !this.project ? html`<br/><button ?disabled=${this.loading || this.busy} @click=${() => void this.loadProject()}>${this.conflict ? "Aktuelle Zuordnungen laden" : "Erneut laden"}</button>` : nothing}</div>` : nothing}
+      ${this.notice ? html`<div class="notice" role="status">${this.notice}</div>` : nothing}
       <div class="toolbar"><nav class="floor-tabs" aria-label="Geschosse">${(["EG", "OG"] as PlanningFloor[]).map((floor) => html`<button aria-pressed=${this.selectedFloor === floor} @click=${() => this.chooseFloor(floor)}>${floorName(floor)}</button>`)}</nav><div class="floor-totals"><span class="floor-total">Summe Normheizlasten ${this.selectedFloor}<strong>${this.number(floorLoad(this.selectedFloor))} W</strong></span>${this.selectedView === "live" ? this.renderCurrentFloorLoad() : nothing}</div></div>
       <div class="workspace"><section><div class="map-card"><div class="plan-heading"><strong>${floorName(this.selectedFloor)}</strong><span>Raumkonturen aus ${planningData.sources.plans[this.selectedFloor].document}</span></div>${this.renderPlan()}${this.selectedView === "simulation" ? html`<p class="readings-legend">Heizlast der Stunde / mögliche FBH-Leistung / Bilanz (alle W) · ≈ = Näherung · + = Reserve · − = Defizit · ? = fehlende Daten</p><div class="legend"><span><i class="dot covered"></i>Bedarf gedeckt</span><span><i class="dot deficit"></i>Defizit · ohne Speicher</span><span><i class="dot selected"></i>Ausgewählter Raum</span></div>` : html`<p class="readings-legend">Aktuelle Temperatur / berechnete Heizlast / aktuelle Heizlast · ? = Wert nicht verfügbar · ≈ = Schätzung aus Temperaturen und verfügbaren solaren Gewinnen</p><p class="readings-legend">Heizlasten gelten für die gesamte Rechenzone. Mehrere Temperatursensoren werden in den Raumdetails einzeln angezeigt; im Grundriss steht dann ?.</p><div class="legend"><span><i class="dot"></i>Raum anklicken</span><span><i class="dot selected"></i>Ausgewählte Rechenzone</span>${floorZones.some((zone) => zone.uncertain) ? html`<span><i class="dot uncertain"></i>? Zuordnung prüfen</span>` : nothing}</div>`}</div><div class="zone-heading"><span>Rechenzonen · ${floorZones.length} im ${this.selectedFloor}</span><span>${this.selectedView === "simulation" ? "Leistungsbilanz" : "Normheizlast"}</span></div><nav class="zone-list" aria-label="Rechenzonen">${floorZones.map((zone) => html`<button class="zone-button" data-zone=${zone.id} aria-label=${this.selectedView === "simulation" ? `${zone.name} auswählen · ${this.readingDescription(zone.id)}` : `${zone.name} auswählen`} aria-pressed=${zone.id === this.selectedZone} @click=${() => this.chooseZone(zone.id)}><span class="zone-number">${zone.id}</span>${zone.name}${zone.uncertain ? " ?" : ""}<span>${this.selectedView === "simulation" ? this.balanceDescription(this.simulatedZone(zone.id), true) : `${this.number(zone.load)} W`}</span></button>`)}</nav></section><aside class="details" aria-label="Details der Rechenzone">${this.selectedView === "simulation" ? this.renderSimulationDetails() : this.renderDetails()}</aside></div>
       <footer class="footer"><span>${planningData.notes.geometry}</span><span>Heizlastberechnung · ${formatNumber(Number(planningData.calculation_date.slice(8, 10)), this.hass)}.${planningData.calculation_date.slice(5, 7)}.${planningData.calculation_date.slice(0, 4)}</span></footer>
