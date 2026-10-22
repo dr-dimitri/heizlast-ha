@@ -67,6 +67,31 @@ export const planningStyles = css`
   .dot.covered { background:var(--success-color,#2e8455); border-color:var(--success-color,#2e8455); }
   .dot.deficit { background:var(--warning-color,#bc7424); border-color:var(--warning-color,#bc7424); }
   .scenario { padding:18px; margin:20px 0; border:1px solid var(--line); border-radius:14px; background:var(--subtle); }
+  .heating-chart { overflow-x:auto; margin-top:20px; }
+  .heating-chart svg { display:block; width:100%; min-width:640px; color:var(--muted); }
+  .heating-chart text { fill:currentColor; font:11px system-ui,sans-serif; }
+  .chart-grid { stroke:var(--line); stroke-width:1; }
+  .chart-selection { stroke:var(--muted); stroke-dasharray:3 4; }
+  .load-line,.supply-line { fill:none; stroke-width:2.5; }
+  .load-line { stroke:var(--accent); }
+  .supply-line { stroke:var(--warning-color,#b56a16); stroke-dasharray:6 3; }
+  .load-point { fill:var(--accent); }
+  .supply-point { fill:var(--warning-color,#b56a16); }
+  .heating-chart .load-label { fill:var(--accent); }
+  .heating-chart .supply-label { fill:var(--warning-color,#b56a16); }
+  .chart-hit { fill:transparent; cursor:pointer; }
+  .chart-legend { display:flex; flex-wrap:wrap; gap:8px 20px; }
+  .chart-legend span:first-child { color:var(--accent); }
+  .chart-legend span:nth-child(2) { color:var(--warning-color,#b56a16); }
+  .curve-summary { display:flex; flex-wrap:wrap; gap:16px 36px; margin:18px 0; font-size:13px; }
+  .curve-summary strong { display:block; font-size:24px; margin-top:6px; }
+  .hour-table { overflow-x:auto; }
+  .hour-table table { border-collapse:collapse; width:100%; font-size:12px; font-variant-numeric:tabular-nums; }
+  .hour-table th,.hour-table td { padding:8px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap; }
+  .hour-table th:first-child,.hour-table td:first-child { text-align:left; }
+  .hour-table caption { text-align:left; padding:12px 0; }
+  .hour-table tr[aria-selected=true] { background:color-mix(in srgb,var(--accent) 10%,var(--surface)); }
+  .scenario-grid > button { align-self:end; }
   .scenario h2 { margin:0 0 8px; font-size:18px; }
   .scenario-grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:14px; margin-top:14px; }
   .scenario-grid label { display:flex; flex-direction:column; gap:7px; font-size:11px; color:var(--muted); }

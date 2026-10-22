@@ -28,7 +28,7 @@ Diese Vorgaben gelten für das gesamte Repository.
   Neuanlage, kein Import und keine Geometriebearbeitung für eigene Grundrisse
   anbieten. Am festen Plan sind nur Sensorzuordnungen und feste Raumtemperaturen
   der elf Rechenzonen veränderbar. Der zusätzliche Simulationstab verändert
-  ausschließlich Szenarioeingaben und Modellannahmen, nicht den Planungsdatensatz.
+  ausschließlich die Auswahl von Tag und Stunde, nicht den Planungsdatensatz.
 - Dargestellt wird ausschließlich das beheizte Wohnhaus. Spitzboden,
   Technikraum, Gerätelager und Garage bleiben außerhalb des Dashboards.
 
@@ -158,7 +158,7 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
 ### Versionierung und Paketinhalt
 
 - `VERSION` ist die zentrale Projektversion im Format `MAJOR.MINOR.PATCH`,
-  aktuell `0.17.0`. Für eine neue Implementierung die Version nach SemVer
+  aktuell `0.18.0`. Für eine neue Implementierung die Version nach SemVer
   erhöhen. Jeder Merge benötigt eine bisher unveröffentlichte Version für das
   verpflichtende HACS-Release; reine Dokumentationsänderungen erhöhen mindestens
   die Patch-Version. CI-Builds erhalten zusätzlich eine eindeutige Buildkennung.
@@ -327,22 +327,20 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   Leserechte und Geschosssummen mit gemischten Temperaturquellen.
   Die Raumlabels verwenden dieselbe Schriftfamilie und Namensgröße ohne
   raumweise Streckung; die Wertezeile hat die halbe Namensschriftgröße.
-  Der Simulationstab verwendet dieselben Labels und Konturen. Szenarioeingaben
-  für Vorlauf, gewünschte Innentemperatur, Außentemperatur und sonnig/bewölkt
-  sowie aufklappbare FBH-/Wetterannahmen sind auch mit Leserechten bedienbar.
-  Sie verändern keine Sensorzustände, Zuordnungen oder Planungsdaten und bleiben
-  beim Tab-/Geschosswechsel erhalten. Ungültige Eingaben liefern Feldfehler
-  und keine scheinbar gültigen Ergebnisse. Die Ansicht zeigt je Raum Bedarf,
-  mögliche Heizleistung, Defizit/Leistungsreserve, solare Gewinne, aktive
-  Heizfläche und Oberflächentemperatur; eine positive Gebäudebilanz darf
-  Raumdefizite nicht als ausgeglichen darstellen.
-  Der Monat ist auswählbar; Januar ist der Startmonat. Wärmebedarf und solare
-  Gewinne sind 24-Stunden-Mittel eines synthetischen Referenztages. Farben
-  und Defizitzählung verwenden den größten zeitweiligen Raum-Leistungsmangel,
-  sodass eine mittlere Reserve keine nächtlichen Defizite verdeckt. Die Breite
-  kommt aus `hass.config.latitude` zur Laufzeit; fehlt sie, ist eine ausdrückliche
-  manuelle Szenarioeingabe erforderlich. Kein Standort wird erfunden oder
-  gespeichert. Änderungen an HA-Standortbreite invalidieren die Berechnung.
+  Der Simulationstab verwendet dieselben Labels und Konturen. Tag und Stunde
+  sind auch mit Leserechten auswählbar. Manuelle FBH-/Wetterannahmen, Monat,
+  Standort und Vorlauf sind in der Oberfläche nicht mehr einstellbar.
+  Stündliche Wetterdaten kommen über `heizlast_ha/get_weather` aus dem gemeinsamen
+  Open-Meteo-Cache. Raumtemperaturen folgen genau den Live-Regeln einschließlich
+  Sensorvorrang, Einheitenumrechnung und unbekannten Werten. Die Simulation
+  verändert keine Sensoren, Zuordnungen oder Planungsdaten. Diagramm und Tabelle
+  zeigen je Stunde Gebäudeheizlast und nötigen gemeinsamen Vorlauf, daneben
+  Raumwerte für die gewählte Stunde. Fehlende Daten bleiben ?, Heizbedarf null
+  zeigt Heizung aus, nicht erreichbarer Vorlauf bleibt ausdrücklich unbekannt.
+  Tagesenergie wird nur bei vollständigen Stundenwerten summiert. Datum und
+  Stunde bleiben beim Tab-/Geschosswechsel erhalten. Tests prüfen Quellen-
+  gleichheit mit Live, unterschiedliche Raumtemperaturen, Datenlücken,
+  Wetterfehler, Wiederholung, Rechte, Zeitumstellung und aktualisierte Sensoren.
   Panel und alte Kartenkennung
   dürfen ausschließlich den festen Grundriss anzeigen und keine Möglichkeit
   zum Hinzufügen oder Importieren eines anderen Plans bieten.
@@ -360,96 +358,74 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
 
 ### Fester Grundriss und Quelldaten
 
-- `thermal-model.ts` enthält die gemeinsamen Verlust-/Solargewinnfunktionen
-  für Live-Ansicht und Simulation; `simulation-core.ts` ergänzt den stationären
-  Leistungsvergleich. Der Kern nimmt strukturelle Planungsdaten als Argument,
-  importiert weder JSON noch HA-/DOM-APIs, führt keine Netzabrufe aus und
-  verändert seine Eingaben nicht. `heat-load.ts` bleibt der HA-Einheitenadapter.
-  Es gibt ausschließlich die vorhandene `planning-data.json`; keine Kopie
-  von Raumdaten, Konturen, Lasten, Flächen, Fenstern oder Solarfaktoren für
-  die Simulation erzeugen. Unter `underfloor_heating` stehen die belegten
-  35/28 °C aus EnEV-Nachweis, Seiten 8/10, mit neutralem Quellenbeleg. Das zusätzliche
-  `installation` enthält ausschließlich bestätigte Benutzerangaben zu einzelnen
-  Raum-Heizkreislängen, Rohrdimension und Verteiler-/Zuleitungszonen, mit einem
-  getrennten neutralen Quellenbeleg `Benutzerangabe`. Zusätzliche Leitungswege,
-  Durchflüsse und Heizstreifenbreiten bleiben Szenarioannahmen im Rechenkern;
-  keine solchen Schätzwerte in den Planungsdatensatz schreiben.
-- Die FBH-Simulation ist eine einstellbare Näherung: logarithmische
-  Heizmittelübertemperatur, 80 % aktive Bodenfläche, Exponent 1,1 und
-  29 °C maximale Bodenoberfläche. Die Start-Referenzleistung wird aus der
-  ausdrücklichen Benutzerannahme abgeleitet, dass bei −9 °C außen und 22 °C
-  innen mit dem belegten Planungsansatz 35/28 °C jeder Raum ohne solare
-  Gewinne versorgt werden kann. Der gemeinsame Rechenkern berechnet den
-  Bedarf jeder Zone aus der einzigen Planungsdatenquelle; geteilt durch
-  80 % ihrer Fläche liefert der größte Wert, auf volle W/m² aufgerundet,
-  die gemeinsame Referenzleistung (aktuell 55 W/m² bei 35/28/22 °C).
-  Dies ist eine Kalibrierannahme, keine Messung oder belegte Anlagenleistung.
-  Die Oberfläche erklärt die Herleitung und den solarfreien Fall (Bewölkt
-  mit 0 W/m² Referenz-Diffusstrahlung). Die Kalibrierung setzt nur Startwerte;
-  Änderungen der Szenario- oder Anlagenparameter werden nicht automatisch
-  nachkalibriert. Kältere Außenluft, niedrigerer Vorlauf, weniger Heizfläche
-  und niedrigere manuelle Referenzleistung können weiterhin Defizite ergeben.
-  Tests prüfen den solarfreien Kalibrierpunkt in allen elf Zonen und beiden
-  Geschossen, die datenabhängige Herleitung, Immutabilität, manuelle
-  Änderungen und unverändert wirksame physikalische Grenzen. Die Oberfläche
-  wird mit
-  q = 8,92 × positiver Oberflächenübertemperatur^1,1 begrenzt. Die
-  berechnete Oberfläche darf im positiven Heizbetrieb auch die logarithmische Heizmitteltemperatur
-  nicht überschreiten; physikalisch unmögliche Referenzpunkte liefern Fehler.
-  Die Übertragung des Exponenten auf die Wasserkennlinie ist eine vereinfachende
-  Annahme, keine belegte Herstellerkennlinie.
-  Mit übergebenen Installationsdaten wird jeder Heizkreis separat über
-  Hinleitung, Raum und Rückleitung gelöst. Startannahmen sind 1,5 l/min
-  konstanter Durchfluss je offenem Kreis und zusätzlich insgesamt 6 m Anbindung
-  je Kreis (3 m hin / 3 m zurück). Beide Werte sind einstellbar und nicht
-  gemessen; Rohrlänge bestimmt keinen Durchfluss ohne Pumpen-/Ventilmodell.
-  Kreise im Verteilerraum behalten die Anbindung dort; alle übrigen
-  Anbindungen werden vereinfachend vollständig der jeweiligen Diele zugeordnet.
-  Der EG-Verteiler liegt in der Diele, der OG-Verteiler im Ostzimmer.
-  Die OG-Diele hat keinen eigenen Kreis; ihre angenommene Heizfläche ist
-  Zuleitungslänge × einstellbare Heizstreifenbreite (Start 0,15 m), gedeckelt
-  auf Planfläche × aktiven Flächenanteil. Diese Breite ist kein belegter
-  Verlegeabstand. Andere Räume behalten den einstellbaren aktiven Flächenanteil.
-  Mehrere Rohrabschnitte teilen sich die aktive Raumfläche proportional zu
-  ihrer Länge. Fläche und Zuleitungswärme werden nicht doppelt bilanziert.
-  Abschnittsleistung und Ausgangstemperatur folgen gemeinsam aus der
-  logarithmischen Kennlinie und Wasserbilanz; der folgende Abschnitt erhält
-  genau diese Temperatur. Wasserannahmen: 1 kg/l, 1,163 Wh/(kg K).
-  Rohrdimension und Längen liefern den Wasserinhalt ohne Speichermodell.
-  Ohne Installationsdaten bleibt für isolierte Aufrufer die bisherige Annahme
-  eines konstanten spezifischen Durchflusses aus Referenzleistung und
-  Referenzspreizung erhalten. Die Dashboardansicht verwendet die Installation.
-  Die Raumoberfläche zeigt den höchsten Segmentwert, die Wärmestromdichte
-  das Flächenmittel und der Rücklauf das Mittel der beteiligten Kreise.
-  Tests prüfen Energie-/Längen-/Volumenerhalt, veränderliche Kreislängen und
-  Zuleitungen, ausschließlich indirekte OG-Dielenwärme, fehlenden Durchfluss,
-  gemeinsame Flächenbegrenzung, Wasser-/Oberflächengrenzen, ungültige
-  Installationsdaten und die Bedienung mit Leserechten.
-  Die Rohrlängen ersetzen keine Kennlinie für Bodenaufbau/Belag oder
-  Verlegeabstand; Wärmeverluste nach unten werden nicht modelliert.
-  Auslegungsspreizung und tatsächliche Kreisrückläufe werden getrennt behandelt.
-  Bei positivem Heizbetrieb bleibt der Rücklauf oberhalb der Zieltemperatur;
-  bei Vorlauf auf/unter Ziel oder Durchfluss null wird keine Heizleistung behauptet. Eine geänderte Referenzspreizung verändert den angenommenen
-  Referenzrücklauf; ihre Startwerte kommen aus den belegten Daten.
-  Sonnig/bewölkt verwenden deklarierte einstellbare Strahlungswerte bei 45°
-  Referenz-Sonnenhöhe. Monatsabhängige Sonnenstände folgen der NOAA-Deklination
-  am 15. Tag eines Nichtschaltjahres und einer ausdrücklich übergebenen
-  Standortbreite. 96 Mittelpunkte von 15-Minuten-Intervallen bilden den vollen
-  Solarzeittag ab. Die Haurwitz-relative Profilform skaliert DNI/DHI; deren
-  Zerlegung und das bewölkte Profil sind vereinfachende Annahmen, keine
-  klimatologischen Monatswerte. Unter dem Horizont sind alle Solarwerte null.
-  Bedarf wird je Zeitschritt auf null begrenzt und erst dann gemittelt;
-  ungenutzter Solarüberschuss bleibt separat, ohne Verrechnung gegen Nachtbedarf.
-  Raumspitzen und zeitgleiche Gebäudespitzen werden getrennt behandelt.
-  Alle dokumentierten
-  Fenster- und Solarfaktoren kommen direkt aus der gemeinsamen Datenquelle.
-  Keine Aufheizzeit, Raumtemperaturprognose oder reale Heizungssteuerung
-  behaupten. Modellannahmen nicht als Mess- oder belegte Planungsdaten ausgeben.
-  Tests prüfen Leistungs-/Temperaturabhängigkeit, Quelle und Immutabilität,
-  Oberflächenlimit, Solarorientierung, invalidierte Szenarien, isolierte
-  Kernnutzung sowie Tab-/Geschosswechsel und fehlende HA-Verbindung. Monats-,
-  Standort-, Nacht-, Hemisphären- und Polartag-/Polarnachtfälle sowie die
-  zeitschrittweise Solarbilanz und zeitweilige Defizite werden zusätzlich geprüft.
+- `thermal-model.ts` enthält die gemeinsame Verlust-/Solarbilanz für Live und
+  Simulation; `simulation-core.ts` ergänzt die Heizkreise und die stündliche
+  Vorlaufinversion. Der Kern importiert weder JSON noch HA-/DOM-APIs, ruft kein
+  Netz ab und verändert seine Eingaben nicht. `heat-load.ts` bleibt Einheitenadapter.
+  Gebäudedaten, Konturen, Lasten, Flächen, Fenster, Solarfaktoren, belegter
+  Vorlauf/Rücklauf und bestätigte Installation werden ausschließlich aus der
+  bestehenden `planning-data.json` gelesen. Keine Kopie für die Simulation anlegen.
+- `simulateHeatingDay` berechnet vollständige Wettertage in Stundenschritten.
+  `get_weather` liefert den gemeinsamen bereinigten Arbeitsspeicher-Cache über
+  einen authentifizierten Leseendpunkt, auch mit Leserechten und ohne zusätzliche
+  HTTP-Abfrage. Der 30-Minuten-Abruf enthält aktuelle und stündliche Temperatur,
+  GHI, DNI und DHI; UTC-Zeitstempel, ein vergangener und acht Vorhersagetage
+  decken die lokalen Tagesgrenzen ab. Heute und die folgenden sechs Tage sind
+  auswählbar. Die Karte liest den Cache beim Öffnen und jede Minute; ungültige,
+  fehlende oder über 60 Minuten alte Wetterdaten liefern Lücken. Ein Standort-
+  wechsel invalidiert die Vorhersage. Kein Persistieren oder Wiederherstellen
+  von Vorhersagen, Koordinaten oder Rohantworten; keine Standortdaten im Frontend.
+  Stündliche Strahlung gilt für die vorangegangene Stunde; die Temperatur ist
+  das Mittel ihrer beiden Randwerte. Dieselbe Fassadenprojektion wie Live nutzt
+  Astral am Intervallmittelpunkt, isotropen Himmel und 20 % Bodenreflexion.
+  HA-Zeitzone und UTC-Zeitachse erhalten 23/25 Stunden an Zeitumstellungstagen;
+  doppelte Uhrzeiten werden mit Offset angezeigt. Bei gebrochenem UTC-Offset
+  werden überlappende Stunden gewichtet; fehlende Nachbarwerte bleiben Lücken.
+  Fehlende Stunden nie null setzen.
+- Jede Zone hält ihre Live-Raumtemperatur für den gewählten Tag konstant:
+  eindeutiger Raumfühler oder ohne Sensor eine feste Eingabe. Keine erfundene
+  Ersatztemperatur bei fehlenden Werten. Last und nutzbare solare Gewinne werden
+  pro Stunde mit denselben Funktionen wie Live berechnet; Solarüberschüsse
+  werden nicht auf andere Räume oder Stunden übertragen. Numerische Intervall-
+  suche bestimmt den kleinsten gemeinsamen Vorlauf, der jeden Raum versorgt,
+  konservativ auf 0,1 °C aufgerundet. Nullbedarf zeigt Heizung aus. Ist der
+  Bedarf bis zur numerischen Suchgrenze 60 °C nicht deckbar, bleibt der Vorlauf
+  unbekannt und Raumdefizite werden bei dieser Grenze gezeigt. Dies ist keine
+  Betriebsempfehlung. Eine positive Gebäudebilanz gleicht kein Raumdefizit aus.
+- Die FBH verwendet die bisherigen gemeinsamen festen Annahmen: 80 % aktive
+  Fläche, Exponent 1,1, maximal 29 °C Oberfläche, 1,5 l/min je offenem Kreis,
+  insgesamt 6 m zusätzliche Anbindung (je 3 m hin/zurück) und 0,15 m wirksame
+  Heizstreifenbreite. Keine manuellen Überschreibungen im Dashboard.
+  Die Referenzkennlinie wird weiterhin aus dem höchsten Bedarf je aktiver
+  Raumfläche am angenommenen solarfreien Kalibrierpunkt −9 °C außen / 22 °C
+  innen und dem belegten Vorlauf/Rücklauf hergeleitet, auf ganze W/m² aufgerundet.
+  Dies ist eine Annahme, keine Messung; Stundenwerte kalibrieren nicht neu.
+  Bestätigte Raumrohrlängen, Rohrdimension und Verteiler-/Zuleitungszonen kommen
+  aus `installation` mit neutralem Beleg Benutzerangabe. Geschätzte Leitungswege,
+  Durchfluss und Breiten bleiben im Rechenkern, nicht im Planungsdatensatz.
+  Kreise werden als Hinleitung → Raum → Rückleitung gerechnet, mit der jeweiligen
+  Live-Temperatur der durchlaufenen Zone. Kreise im Verteilerraum bleiben dort,
+  übrige Anbindungen liegen vereinfachend in der Geschossdiele. Die OG-Diele hat
+  keinen eigenen Kreis; ihre Fläche folgt Zuleitungslänge × Heizstreifenbreite,
+  gedeckelt auf Planfläche × aktiven Anteil. Mehrere Abschnitte teilen Flächen
+  proportional zur Rohrlänge. Flächen und Leitungswärme nie doppelt bilanzieren.
+  Wasserannahmen: 1 kg/l, 1,163 Wh/(kg K). Leistung und Ausgangstemperatur werden
+  gemeinsam aus logarithmischer Kennlinie und Wasserbilanz gelöst. Der folgende
+  Abschnitt erhält die Ausgangstemperatur. Die Oberfläche folgt zusätzlich
+  q = 8,92 × positiver Oberflächenübertemperatur^1,1 und darf im Heizbetrieb
+  die logarithmische Heizmitteltemperatur nicht überschreiten. Die Raumoberfläche
+  ist der höchste Segmentwert, Wärmestromdichte das Flächenmittel, Rücklauf das
+  Mittel beteiligter Kreise. Ohne positive Übertemperatur keine Heizleistung.
+  Rohrinhalt liefert kein Speichermodell; Rohrlänge bestimmt keinen Durchfluss.
+  Bodenaufbau/Belag, tatsächlicher Verlegeabstand, Wärmeverluste nach unten,
+  hydraulischer Abgleich, Thermostatregelung, Speicher, interne Gewinne und
+  wechselnde Lüftung bleiben unberücksichtigt. Keine Aufheizzeit-, Raumtemperatur-
+  oder reale Steuerungsprognose behaupten. Der isolierte alte Szenariokern bleibt
+  für fachliche Regressionstests verfügbar, wird aber nicht vom Dashboard benutzt.
+  Tests prüfen Energie-, Längen- und Volumenerhalt, physikalische Grenzen,
+  unterschiedlichen Raumbedarf, Sensorvorrang, Wetterzeitbezug, stündliche
+  Inversion, Nicht-Erreichbarkeit, Nullbedarf, Lücken, Immutabilität und
+  unveränderte feste Planungsdaten.
 - `planning-data.json` enthält den einzigen implementierten Grundriss.
   Vereinfachte Konturen sind keine Vermessung; Flächen und Lasten stammen
   ausschließlich aus den neutral belegten Quelldokumenten. Gemeinsame

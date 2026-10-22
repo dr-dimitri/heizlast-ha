@@ -6,6 +6,7 @@ import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from aiohttp import ClientError
 from astral import Observer, sun
@@ -25,6 +26,7 @@ from homeassistant.helpers.event import (
 from homeassistant.util import dt as dt_util
 
 from . import HeizlastConfigEntry
+from .const import DOMAIN
 
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 UPDATE_INTERVAL = timedelta(minutes=30)
@@ -89,6 +91,7 @@ async def async_setup_entry(
 ) -> None:
     """Make one initial request and add all sensors even if weather is unavailable."""
     weather = WeatherPoller(hass)
+    hass.data[DOMAIN]["weather"] = weather
     await weather.async_refresh()
     async_add_entities(
         [OutdoorWeatherSensor(entry, weather, metric) for metric in METRICS]
@@ -103,6 +106,9 @@ class WeatherPoller:
         self.hass = hass
         self.readings: dict[str, WeatherReading] = {}
         self.facade_irradiance: dict[str, float] = {}
+        self.hourly: dict[int, dict] = {}
+        self.fetched_at: datetime | None = None
+        self._location: tuple | None = None
         self._listeners: set[Callable[[], None]] = set()
         self._cancel_interval: Callable[[], None] | None = None
         self._cancel_facade_expiry: Callable[[], None] | None = None
@@ -185,21 +191,35 @@ class WeatherPoller:
     async def async_refresh(self) -> None:
         """Accept valid fields independently and keep every last successful reading."""
         async with self._update_lock:
+            location = (self.hass.config.latitude, self.hass.config.longitude)
+            self.hourly = {}
+            self.fetched_at = None
             try:
                 async with asyncio.timeout(REQUEST_TIMEOUT):
                     async with async_get_clientsession(self.hass).get(
                         OPEN_METEO_URL,
                         params={
-                            "latitude": self.hass.config.latitude,
-                            "longitude": self.hass.config.longitude,
+                            "latitude": location[0],
+                            "longitude": location[1],
                             "current": ",".join(metric.field for metric in METRICS),
+                            "hourly": ",".join(metric.field for metric in METRICS),
                             "temperature_unit": "celsius",
                             "timeformat": "unixtime",
-                            "forecast_days": 1,
+                            "timezone": "GMT",
+                            "past_days": 1,
+                            "forecast_days": 8,
                         },
                     ) as response:
                         response.raise_for_status()
                         data = await response.json()
+                if not isinstance(data, dict) or location != (
+                    self.hass.config.latitude,
+                    self.hass.config.longitude,
+                ):
+                    raise ValueError
+                self.hourly = _hourly_weather(self.hass, data)
+                self.fetched_at = dt_util.utcnow()
+                self._location = location
                 current = data["current"]
                 units = data["current_units"]
                 if not isinstance(current, dict) or not isinstance(units, dict):
@@ -238,6 +258,64 @@ class WeatherPoller:
                 if sample_time is not None:
                     self._facade_expires_at = sample_time + MAX_SOLAR_AGE
             self._async_schedule_facade_expiry()
+
+    def forecast_snapshot(self) -> dict:
+        """Return complete local days, never location or raw provider metadata."""
+        now = dt_util.utcnow()
+        timezone = self.hass.config.time_zone
+        zone = ZoneInfo(timezone)
+        today = now.astimezone(zone).date()
+        fresh = (
+            self.fetched_at is not None
+            and timedelta(0) <= now - self.fetched_at < MAX_SOLAR_AGE
+            and self._location
+            == (self.hass.config.latitude, self.hass.config.longitude)
+        )
+        days = []
+        for offset in range(7):
+            date = today + timedelta(days=offset)
+            start = datetime.combine(date, datetime.min.time(), zone).astimezone(UTC)
+            end = datetime.combine(
+                date + timedelta(days=1), datetime.min.time(), zone
+            ).astimezone(UTC)
+            hours = []
+            while start < end:
+                sample = self._hour_sample(int(start.timestamp())) if fresh else {}
+                hours.append({"time": start.isoformat(), **sample})
+                start += timedelta(hours=1)
+            days.append({"date": date.isoformat(), "hours": hours})
+        return {
+            "timezone": timezone,
+            "fetched_at": self.fetched_at.isoformat() if fresh else None,
+            "days": days,
+        }
+
+    def _hour_sample(self, timestamp: int) -> dict:
+        """Weight overlapping UTC intervals for fractional-offset local time zones."""
+        if not self.hourly:
+            return {}
+        anchor = next(iter(self.hourly))
+        fraction = (timestamp - anchor) % 3600 / 3600
+        lower = timestamp - round(fraction * 3600)
+        first = self.hourly.get(lower)
+        if first is None:
+            return {}
+        if fraction == 0:
+            return first
+        second = self.hourly.get(lower + 3600)
+        if second is None:
+            return {}
+        return {
+            "outdoorTemperatureC": first["outdoorTemperatureC"] * (1 - fraction)
+            + second["outdoorTemperatureC"] * fraction,
+            "globalIrradianceWPerM2": first["globalIrradianceWPerM2"] * (1 - fraction)
+            + second["globalIrradianceWPerM2"] * fraction,
+            "facadeIrradiance": {
+                facade: first["facadeIrradiance"][facade] * (1 - fraction)
+                + second["facadeIrradiance"][facade] * fraction
+                for facade in ("N", "E", "S", "W")
+            },
+        }
 
 
 class OutdoorWeatherSensor(RestoreSensor):
@@ -350,6 +428,13 @@ def _facade_irradiance(
     if age >= MAX_SOLAR_AGE or age < -MAX_SOLAR_FUTURE:
         return {}
     midpoint = valid_time - timedelta(seconds=ghi.interval / 2)
+    return _project_facades(hass, midpoint, ghi.value, dni.value, dhi.value)
+
+
+def _project_facades(
+    hass: HomeAssistant, midpoint: datetime, ghi: float, dni: float, dhi: float
+) -> dict[str, float]:
+    """Use the same solar projection for current and hourly weather."""
     try:
         observer = Observer(hass.config.latitude, hass.config.longitude)
         azimuth = sun.azimuth(observer, midpoint)
@@ -359,13 +444,13 @@ def _facade_irradiance(
         ):
             return {}
         # A vertical plane sees half the isotropic sky and 20% reflected ground.
-        diffuse_and_reflected = 0.5 * dhi.value + 0.1 * ghi.value
+        diffuse_and_reflected = 0.5 * dhi + 0.1 * ghi
         horizontal_projection = (
             math.cos(math.radians(elevation)) if elevation > 0 else 0
         )
         facades = {
             f"facade_{name}_w_m2": diffuse_and_reflected
-            + dni.value
+            + dni
             * max(
                 0,
                 horizontal_projection * math.cos(math.radians(azimuth - orientation)),
@@ -384,6 +469,56 @@ def _facade_irradiance(
         )
     except OverflowError, TypeError, ValueError:
         return {}
+
+
+def _hourly_weather(hass: HomeAssistant, data: dict) -> dict[int, dict]:
+    """Align past-hour radiation with start/end temperatures for that same hour."""
+    hourly, units = data.get("hourly"), data.get("hourly_units")
+    if not isinstance(hourly, dict) or not isinstance(units, dict):
+        return {}
+    times = hourly.get("time")
+    if not isinstance(times, list) or units.get("time") != "unixtime":
+        return {}
+    if any(
+        units.get(metric.field) != metric.unit
+        or not isinstance(hourly.get(metric.field), list)
+        or len(hourly[metric.field]) != len(times)
+        for metric in METRICS
+    ):
+        return {}
+    if any(
+        not isinstance(time, int)
+        or isinstance(time, bool)
+        or (index and time - times[index - 1] != 3600)
+        for index, time in enumerate(times)
+    ):
+        return {}
+    result = {}
+    for index in range(1, len(times)):
+        temperatures = hourly["temperature_2m"][index - 1 : index + 1]
+        solar = [hourly[metric.field][index] for metric in METRICS[1:]]
+        if not all(
+            _valid_value(value, solar=False) and value >= -273.15
+            for value in temperatures
+        ):
+            continue
+        if not all(_valid_value(value, solar=True) for value in solar):
+            continue
+        try:
+            midpoint = datetime.fromtimestamp(times[index] - 1800, UTC)
+        except OverflowError, OSError, ValueError:
+            continue
+        facades = _project_facades(hass, midpoint, *solar)
+        if not facades:
+            continue
+        result[times[index - 1]] = {
+            "outdoorTemperatureC": sum(temperatures) / 2,
+            "globalIrradianceWPerM2": solar[0],
+            "facadeIrradiance": dict(
+                zip(("N", "E", "S", "W"), facades.values(), strict=True)
+            ),
+        }
+    return result
 
 
 def _valid_value(value: object, *, solar: bool) -> bool:

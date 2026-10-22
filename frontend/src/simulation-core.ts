@@ -437,7 +437,8 @@ function heatPipeSegment(
     surfaceC: scenario.indoorTemperatureC + Math.pow(powerW / areaM2 / SURFACE_COEFFICIENT, 1 / SURFACE_EXPONENT) };
 }
 
-function circuitEmission(data: SimulationPlanningData, scenario: SimulationScenario, parameters: SimulationParameters) {
+function circuitEmission(data: SimulationPlanningData, scenario: SimulationScenario, parameters: SimulationParameters,
+  roomTemperatures?: Readonly<Record<number, number>>) {
   const installation = data.underfloor_heating.installation!, layout = circuitLayout(data, parameters);
   const innerDiameterM = (installation.pipe_outer_diameter_mm - 2 * installation.pipe_wall_thickness_mm) / 1000;
   const volumeLPerM = Math.PI * Math.pow(innerDiameterM / 2, 2) * 1000;
@@ -448,7 +449,7 @@ function circuitEmission(data: SimulationPlanningData, scenario: SimulationScena
   const zones = new Map(data.zones.map((zone) => {
     const pipe = layout.lengths.get(zone.id)!;
     return [zone.id, { activeFloorAreaM2: layout.areas.get(zone.id)!, heatingPowerW: 0,
-      floorSurfaceTemperatureC: scenario.indoorTemperatureC, heatFluxWPerM2: 0,
+      floorSurfaceTemperatureC: roomTemperatures?.[zone.id] ?? scenario.indoorTemperatureC, heatFluxWPerM2: 0,
       returnTemperatureC: scenario.supplyTemperatureC, roomPipeLengthM: pipe.room,
       connectionPipeLengthM: pipe.connection, pipeWaterVolumeL: (pipe.room + pipe.connection) * volumeLPerM }];
   }));
@@ -456,7 +457,8 @@ function circuitEmission(data: SimulationPlanningData, scenario: SimulationScena
   const circuits: CircuitSimulationResult[] = layout.circuits.map((circuit) => {
     let inletC = scenario.supplyTemperatureC, roomHeatingPowerW = 0, connectionHeatingPowerW = 0;
     for (const segment of circuit.segments) {
-      const emitted = heatPipeSegment(inletC, segment.areaM2, capacity, referenceDelta, scenario, parameters);
+      const segmentScenario = roomTemperatures ? { ...scenario, indoorTemperatureC: roomTemperatures[segment.zoneId] } : scenario;
+      const emitted = heatPipeSegment(inletC, segment.areaM2, capacity, referenceDelta, segmentScenario, parameters);
       const zone = zones.get(segment.zoneId)!;
       zone.heatingPowerW += emitted.powerW;
       zone.floorSurfaceTemperatureC = Math.max(zone.floorSurfaceTemperatureC, emitted.surfaceC);
@@ -559,4 +561,98 @@ export function simulateBuilding(
   if (circuits.some((circuit) => !Object.values(circuit).every(Number.isFinite))) return invalidResult(["calculation"]);
   return { valid: true, errors: [], zones, totals, facadeIrradiance, circuits,
     solarProfile: { representativeDay: REPRESENTATIVE_DAY, daylightHours: profile.daylightHours, steps: SOLAR_STEPS } };
+}
+
+/** Provider-derived weather for the interval starting at time (one elapsed hour). */
+export interface HourlyWeather {
+  time: string;
+  outdoorTemperatureC?: number;
+  globalIrradianceWPerM2?: number;
+  facadeIrradiance?: Record<FacadeOrientation, number>;
+}
+export interface WeatherDay { date: string; hours: HourlyWeather[] }
+export interface WeatherForecast { timezone: string; fetched_at: string | null; days: WeatherDay[] }
+export interface HeatingHour {
+  time: string;
+  status: "covered" | "off" | "unreachable" | "missing_weather" | "missing_temperature" | "invalid_model";
+  outdoorTemperatureC: number | null;
+  globalIrradianceWPerM2: number | null;
+  heatDemandW: number | null;
+  requiredSupplyTemperatureC: number | null;
+  zones: ZoneSimulationResult[];
+  circuits: CircuitSimulationResult[];
+}
+export interface HeatingDay { hours: HeatingHour[]; heatEnergyKWh: number | null; missingZoneIds: number[] }
+
+/** A search boundary, not a recommendation to operate the installation at 60 °C. */
+export const MAX_REQUIRED_SUPPLY_C = 60;
+
+/** Invert the existing circuit model with fixed shared defaults, never a second building dataset.
+ * Each room keeps its live temperature for the day; this is not a temperature forecast.
+ */
+export function simulateHeatingDay(data: SimulationPlanningData, weather: ReadonlyArray<HourlyWeather>,
+  temperatures: Readonly<Record<number, number | null | undefined>>): HeatingDay {
+  const missingZoneIds = data.zones.filter((zone) => !finiteNumber(temperatures[zone.id]) || temperatures[zone.id]! < -273.15).map((zone) => zone.id);
+  // Validate installation before deriving defaults, which inspect its topology.
+  const probe = { ...defaultSimulationScenario(data), indoorTemperatureC: 22 };
+  const parameters = defaultSimulationParameters({ ...data, underfloor_heating: { ...data.underfloor_heating, installation: undefined } });
+  const invalid = validationErrors(data, probe, parameters, { latitudeDeg: 0 }).size > 0 || !data.underfloor_heating.installation;
+  const fixed = invalid ? parameters : defaultSimulationParameters(data);
+  const roomTemperatures = temperatures as Readonly<Record<number, number>>;
+  const emptyHour = (sample: HourlyWeather, status: HeatingHour["status"]): HeatingHour => ({
+    time: sample.time, status, outdoorTemperatureC: finiteNumber(sample.outdoorTemperatureC) ? sample.outdoorTemperatureC : null,
+    globalIrradianceWPerM2: finiteNumber(sample.globalIrradianceWPerM2) ? sample.globalIrradianceWPerM2 : null,
+    heatDemandW: null, requiredSupplyTemperatureC: null, zones: [], circuits: [],
+  });
+  const invalidFixed = invalid || validationErrors(data, probe, fixed, { latitudeDeg: 0 }).size > 0;
+  const minimumRoomTemperature = Math.min(...data.zones.map((zone) => roomTemperatures[zone.id]));
+  const validTimes = weather.every((sample, index) => Number.isFinite(Date.parse(sample.time))
+    && (!index || Date.parse(sample.time) - Date.parse(weather[index - 1].time) === 3600000));
+  const hours = weather.map((sample): HeatingHour => {
+    if (invalidFixed) return emptyHour(sample, "invalid_model");
+    if (missingZoneIds.length) return emptyHour(sample, "missing_temperature");
+    if (!validTimes || !finiteNumber(sample.outdoorTemperatureC) || sample.outdoorTemperatureC < -273.15
+      || !finiteNumber(sample.globalIrradianceWPerM2) || sample.globalIrradianceWPerM2 < 0
+      || !sample.facadeIrradiance || Object.values(sample.facadeIrradiance).some((value) => !finiteNumber(value) || value < 0)) return emptyHour(sample, "missing_weather");
+    const demands = data.zones.map((zone) => {
+      const loss = heatLossW(zone, temperatures[zone.id], sample.outdoorTemperatureC, data.building.design_outdoor_temperature_c);
+      const solar = solarGainsFromFacadesW(zone, sample.facadeIrradiance, data.solar_assumptions);
+      return loss === null || solar === null ? null : { loss, solar, demand: Math.max(0, loss - solar) };
+    });
+    if (demands.some((value) => value === null)) return emptyHour(sample, "missing_weather");
+    const known = demands as { loss: number; solar: number; demand: number }[];
+    const totalDemand = known.reduce((sum, value) => sum + value.demand, 0);
+    const emission = (supplyTemperatureC: number) => circuitEmission(data, { ...probe, supplyTemperatureC }, fixed, roomTemperatures);
+    const covers = (value: ReturnType<typeof emission>) => data.zones.every((zone, index) => value.zones.get(zone.id)!.heatingPowerW + 1e-7 >= known[index].demand);
+    let supply = MAX_REQUIRED_SUPPLY_C;
+    let model = emission(supply);
+    let status: HeatingHour["status"] = "unreachable";
+    if (totalDemand === 0) {
+      status = "off";
+      model = emission(minimumRoomTemperature);
+    } else if (covers(model)) {
+      let low = minimumRoomTemperature, high = MAX_REQUIRED_SUPPLY_C;
+      for (let iteration = 0; iteration < 24; iteration++) {
+        const middle = (low + high) / 2;
+        if (covers(emission(middle))) high = middle;
+        else low = middle;
+      }
+      // Round conservatively so the displayed temperature still covers every room.
+      supply = Math.ceil(high * 10) / 10;
+      model = emission(supply);
+      status = "covered";
+    }
+    const zones = data.zones.map((zone, index): ZoneSimulationResult => {
+      const value = known[index], output = model.zones.get(zone.id)!;
+      return { id: zone.id, ...output, heatLossW: value.loss, solarGainsW: value.solar,
+        heatDemandW: value.demand, balanceW: output.heatingPowerW - value.demand,
+        solarSurplusW: Math.max(0, value.solar - value.loss), peakHeatDemandW: value.demand,
+        peakSolarGainsW: value.solar, peakDeficitW: Math.max(0, value.demand - output.heatingPowerW) };
+    });
+    if (!Number.isFinite(totalDemand) || zones.some((zone) => !Object.values(zone).every(Number.isFinite))) return emptyHour(sample, "invalid_model");
+    return { ...emptyHour(sample, status), heatDemandW: totalDemand,
+      requiredSupplyTemperatureC: status === "covered" ? supply : null, zones, circuits: model.circuits };
+  });
+  return { hours, missingZoneIds, heatEnergyKWh: hours.length && hours.every((hour) => hour.heatDemandW !== null)
+    ? hours.reduce((sum, hour) => sum + hour.heatDemandW!, 0) / 1000 : null };
 }
