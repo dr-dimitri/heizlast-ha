@@ -67,7 +67,8 @@ export interface HeatPumpDay {
 export function estimateHeatPumpHour(hour: HeatingHour): HeatPumpHour {
   const empty: HeatPumpHour = { time: hour.time, status: "missing_data", cop: null, maxThermalPowerW: null, deficitW: null, electricityKWh: null };
   if (!Number.isFinite(Date.parse(hour.time)) || hour.heatDemandW === null || !Number.isFinite(hour.heatDemandW) || hour.heatDemandW < 0) return empty;
-  if (hour.status === "off" && hour.heatDemandW === 0) return { ...empty, status: "off", deficitW: 0, electricityKWh: 0 };
+  // Building solar gains may cover its energy balance while conservative room sizing still calls for heat.
+  if (hour.heatDemandW === 0 && ["off", "covered", "unreachable"].includes(hour.status)) return { ...empty, status: "off", deficitW: 0, electricityKWh: 0 };
   if (hour.status === "unreachable") return { ...empty, status: "unreachable" };
   if (hour.status !== "covered") return empty;
   const point = heatPumpOperatingPoint(hour.outdoorTemperatureC, hour.requiredSupplyTemperatureC);

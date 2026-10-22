@@ -249,10 +249,12 @@ kommen ausschließlich aus
 Verlust- und Solarbilanz für Live und Simulation;
 [`simulation-core.ts`](frontend/src/simulation-core.ts) ergänzt das
 FBH-Leistungsmodell und dessen Umkehrung zur nötigen Vorlauftemperatur.
+Die Simulation führt zusätzlich eine getrennte Gebäudebilanz für den
+Energieverbrauch der Raumheizung.
 
 Der Tab **Simulation** berechnet einen vollständigen Tag in **Stundenschritten**.
-Wählbar sind heute und die folgenden sechs Tage. Das Diagramm zeigt die Summe
-der Raumheizlasten in W auf der linken Achse sowie den nötigen gemeinsamen Vorlauf
+Wählbar sind heute und die folgenden sechs Tage. Das Diagramm zeigt die
+Gebäudeheizlast nach Solarabzug in W auf der linken Achse sowie den nötigen gemeinsamen Vorlauf
 und die Außentemperatur in °C auf der rechten Achse. Die gemeinsame Temperaturachse
 umfasst auch negative Außentemperaturen. Eine separate Stundenwertliste entfällt.
 Stunden lassen sich im Diagramm oder im Auswahlfeld wählen; Vorlauf und
@@ -260,7 +262,38 @@ Außentemperatur der gewählten Stunde stehen zusätzlich unter dem Diagramm.
 Durch Auswahl einer Stunde zeigen die
 unveränderten EG-/OG-Grundrisse die zugehörigen Raumlasten, solaren Gewinne,
 FBH-Leistungen und Defizite. Die Tagesenergie in kWh ist die Summe der
-stündlichen Bedarfe. Sie bleibt bei Datenlücken unbekannt.
+stündlichen Gebäudebedarfe. Sie bleibt bei Datenlücken unbekannt.
+
+Die Gebäudebilanz verwendet die belegten Transmissions- und Lüftungsanteile
+der Räume aus dem gemeinsamen Planungsdatensatz. Wie in der vorhandenen
+Heizlastberechnung geht die Lüftung auf Gebäudeebene nur hälftig ein.
+Der Normbeitrag eines Raums ist deshalb
+`(Transmission + 0,5 × Lüftung) × Rundungsfaktor`, wobei
+`Rundungsfaktor = Gebäude-Normheizlast / Summe(Transmission + 0,5 × Lüftung)`.
+Dieser Faktor gleicht ausschließlich die Rundung der Quellenwerte aus; er
+ist keine Kalibrierung mit Verbrauchsmessungen. Bei den jeweiligen
+Auslegungs-Raumtemperaturen, Norm-Außentemperatur und ohne Sonne entspricht
+die Gebäudebilanz damit exakt der belegten Gebäude-Normheizlast.
+
+Jeder Beitrag wird mit der jeweiligen Live-Raumtemperatur und dem
+Temperaturverhältnis der bisherigen Verlustformel skaliert. Davon werden
+die unveränderten solaren Gewinne dieses Raums abgezogen, begrenzt auf 0 W.
+Erst danach werden die Beiträge addiert. Solarüberschüsse werden weder
+zwischen Räumen noch zwischen Stunden verrechnet. Gasbedarf,
+Wärmepumpenstrom und Kosten verwenden ausschließlich diesen Gebäudebedarf.
+Fehlende oder ungültige Gebäudeanteile ergeben unbekannte Energie; die
+Summe der Raum-Auslegungslasten dient nicht als Ersatz.
+
+Raumlabels, Geschosssummen, FBH-Leistungsprüfung und Vorlaufsuche behalten
+die konservative Raumlastrechnung mit vollen Lüftungsverlusten. Deshalb
+kann ihre Summe über dem Gebäudebedarf liegen; auch bei Gebäude-Nullbedarf
+kann die getrennte Raumprüfung noch einen Vorlauf anzeigen. Diese
+Auslegungsreserve wird nicht als Energieverbrauch gezählt. Der COP verwendet
+weiterhin diesen konservativen Vorlauf. Interne Gewinne, Wärmespeicherung
+und tatsächliche Lüftung bleiben unbekannt; es werden keine pauschalen
+Bewohner- oder Gerätegewinne erfunden. Die Gebäudebilanz verbessert die
+Bezugsgröße für den Energievergleich, bleibt aber eine stationäre Schätzung
+für Raumheizung ohne Warmwasser und ohne Verbrauchskalibrierung.
 
 Die Simulation schätzt außerdem den **Gasbedarf in kWh für den gewählten Tag**.
 Für eine moderne Brennwerttherme gilt die feste Annahme **95 % Nutzungsgrad
@@ -309,12 +342,13 @@ werden die +7-°C-Werte vereinfachend konstant gehalten, höchstens bis +45 °C.
 Unter −7 °C bleibt der Bedarf mangels tabellarischer Punkte unbekannt.
 Die Heizbetriebsgrenze von 60 °C stammt aus derselben Unterlage, S. 4.
 
-Für jede gedeckte Stunde gilt `Strombedarf = Wärmebedarf / COP / 1000` in kWh,
+Für jede gedeckte Stunde gilt `Strombedarf = Gebäudewärmebedarf / COP / 1000` in kWh,
 wenn der Wärmebedarf in W vorliegt. Der erforderliche Vorlauf stammt aus dem
 bestehenden FBH-Modell. Ist die Bosch-Heizleistung unzureichend, der FBH-Vorlauf
 nicht erreichbar oder die Kennfeldnäherung nicht anwendbar, bleiben Tagesstrom
 und Stromkosten unbekannt. Es wird kein Heizstab oder Gas-Backup ergänzt.
-Bei Nullbedarf entstehen null kWh. Teillastvorteile, Takten, Abtauung und
+Bei Gebäude-Nullbedarf entstehen null kWh, auch wenn die getrennte konservative
+Raumprüfung noch Bedarf zeigt. Teillastvorteile, Takten, Abtauung und
 zusätzliche Hilfsenergie erhalten kein separates Modell. Die Ergebnisse
 sind stationäre Schätzungen für Raumheizung, keine Zählerprognose.
 
@@ -402,15 +436,17 @@ Fehlt eine Raumtemperatur, kann kein vollständiger Gebäudevorlauf angegeben
 werden. Änderungen der Live-Eingaben oder Sensorwerte aktualisieren die Rechnung.
 Die Simulation verändert weder Zuordnungen noch Sensoren oder Planungsdaten.
 
-Für jede Stunde und jeden Raum gilt die gemeinsame temperaturbezogene
-Heizlastschätzung abzüglich verfügbarer solaren Gewinne, begrenzt auf 0 W.
+Für jede Stunde und jeden Raum gilt für die konservative FBH-Prüfung die
+gemeinsame temperaturbezogene Heizlastschätzung abzüglich verfügbarer
+solaren Gewinne, begrenzt auf 0 W. Die getrennte Gebäudebilanz verwendet
+statt der vollen Raum-Normlast den oben beschriebenen Gebäudeanteil.
 Solarüberschüsse bleiben separat und werden nicht auf andere Räume oder
 Nachtstunden angerechnet. Die nötige Vorlauftemperatur wird durch Umkehrung des
 bestehenden Heizkreismodells bestimmt: die niedrigste gemeinsame Temperatur,
 bei der **jeder Raum** seinen Bedarf decken kann. Numerische Intervallsuche und
 Aufrunden auf 0,1 °C verhindern, dass der angezeigte Wert unter dem berechneten
 Bedarf liegt. Eine Gebäudereserve kann keinen unterversorgten Raum ausgleichen.
-Bei Bedarf null steht **Heizung aus**, ohne erfundene Vorlauftemperatur.
+Bei Raumprüfbedarf null steht für den Vorlauf **Heizung aus**, ohne erfundene Vorlauftemperatur.
 Ist die Leistung trotz Suche bis 60 °C unzureichend, steht **Nicht erreichbar**
 und die Kurve hat dort keinen Vorlaufwert. Raumdefizite werden bei dieser
 Suchgrenze gezeigt. 60 °C ist eine numerische Suchgrenze, keine Betriebsempfehlung;
@@ -471,7 +507,9 @@ tragen deshalb das Näherungszeichen **≈**.
 `simulateHeatingDay(data, hours, temperatures)` nimmt strukturelle Planungsdaten,
 zeitlich zusammenhängende Stunden mit Wetterwerten und eine Temperaturzuordnung
 je Zone entgegen. Das Ergebnis enthält Stundenstatus, Raum- und Kreiswerte,
-Heizlast, nötigen Vorlauf und vollständige Tagesenergie. Der Kern importiert
+Gebäudeheizlast (`heatDemandW`), konservative Raumlastsumme
+(`roomHeatDemandW`), nötigen Vorlauf und vollständige Gebäude-Tagesenergie.
+Die Zonenwerte bleiben die konservative FBH-Raumrechnung. Der Kern importiert
 weder JSON noch DOM-/HA-APIs, führt keine Netzabrufe aus und verändert seine
 Eingaben nicht. Die bisherigen isolierten Szenariofunktionen bleiben für
 fachliche Kernprüfungen nutzbar; die Dashboardansicht verwendet ausschließlich

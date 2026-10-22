@@ -4,6 +4,12 @@ export interface HeatLossZone {
   temperature: number;
 }
 
+export interface BuildingHeatLossZone {
+  temperature: number;
+  transmission?: number;
+  ventilation?: number;
+}
+
 export type FacadeOrientation = "N" | "E" | "S" | "W";
 export type FacadeIrradiance = Readonly<Partial<Record<FacadeOrientation, number>>>;
 
@@ -35,6 +41,28 @@ export function heatLossW(
   if (!Number.isFinite(designDelta) || designDelta <= 0) return null;
   const load = zone.load * (Math.max(0, insideC - outsideC) / designDelta);
   return Number.isFinite(load) ? load : null;
+}
+
+/** Allocate the documented building design load using transmission and half ventilation.
+ * Normalization only reconciles source rounding. Room sizing loads stay separate.
+ * Missing components never fall back to the more conservative room design loads.
+ */
+export function buildingDesignHeatLossZones(
+  zones: ReadonlyArray<BuildingHeatLossZone>,
+  buildingDesignHeatLoadW?: number,
+): HeatLossZone[] | null {
+  if (typeof buildingDesignHeatLoadW !== "number" || !Number.isFinite(buildingDesignHeatLoadW)
+    || buildingDesignHeatLoadW < 0 || !zones.length) return null;
+  const weights: number[] = [];
+  for (const zone of zones) {
+    if (typeof zone.transmission !== "number" || !Number.isFinite(zone.transmission) || zone.transmission < 0
+      || typeof zone.ventilation !== "number" || !Number.isFinite(zone.ventilation) || zone.ventilation < 0) return null;
+    weights.push(zone.transmission + zone.ventilation * 0.5);
+  }
+  const total = weights.reduce((sum, value) => sum + value, 0);
+  if (!Number.isFinite(total) || (total === 0 && buildingDesignHeatLoadW !== 0)) return null;
+  return zones.map((zone, index) => ({ temperature: zone.temperature,
+    load: total === 0 ? 0 : (weights[index] / total) * buildingDesignHeatLoadW }));
 }
 
 /** Apply window areas and the documented frame, glazing and shading factors. */

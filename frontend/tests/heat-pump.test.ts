@@ -5,7 +5,7 @@ import type { HeatingHour } from "../src/simulation-core";
 
 function hour(overrides: Partial<HeatingHour> = {}): HeatingHour {
   return { time: "2026-01-01T00:00:00Z", status: "covered", outdoorTemperatureC: 2, globalIrradianceWPerM2: 0,
-    heatDemandW: 3000, requiredSupplyTemperatureC: 35, zones: [], circuits: [], ...overrides };
+    heatDemandW: 3000, roomHeatDemandW: 3700, requiredSupplyTemperatureC: 35, zones: [], circuits: [], ...overrides };
 }
 
 describe("Bosch Compress 5800i AW 5 OR-S stationary model", () => {
@@ -46,6 +46,16 @@ describe("Bosch Compress 5800i AW 5 OR-S stationary model", () => {
     for (const outdoorTemperatureC of [null, NaN, Infinity]) expect(estimateHeatPumpHour(hour({ outdoorTemperatureC })).electricityKWh).toBeNull();
     for (const status of ["missing_temperature", "missing_weather", "invalid_model"] as const) expect(estimateHeatPumpHour(hour({ status })).electricityKWh).toBeNull();
     expect(estimateHeatPumpHour(hour({ status: "off", heatDemandW: 0, requiredSupplyTemperatureC: null }))).toMatchObject({ status: "off", electricityKWh: 0, cop: null });
+    for (const status of ["covered", "unreachable"] as const) {
+      expect(estimateHeatPumpHour(hour({ status, heatDemandW: 0, roomHeatDemandW: 1000, requiredSupplyTemperatureC: null })))
+        .toMatchObject({ status: "off", electricityKWh: 0, cop: null });
+    }
+    for (const status of ["missing_temperature", "missing_weather", "invalid_model"] as const) {
+      expect(estimateHeatPumpHour(hour({ status, heatDemandW: 0 })).electricityKWh).toBeNull();
+    }
+    const buildingCovered = estimateHeatPumpHour(hour({ heatDemandW: 6000, roomHeatDemandW: 8000 }));
+    expect(buildingCovered.status).toBe("covered");
+    expect(buildingCovered.electricityKWh).toBeCloseTo(6 / 2.91, 10);
   });
 
   it("sums elapsed hours without rounding, supports DST and remains immutable", () => {
