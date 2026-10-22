@@ -34,8 +34,8 @@ describe("SAX-Tarifsensoren", () => {
     const source = tou([{ start: "13:30:00", end: "14:00:00", price_eur_kwh: 0.1 }, { start: "22:00:00", end: "06:00:00", price_eur_kwh: 0.2 }]);
     const result = tariffIntervalsForHours([hour()], source, "Europe/Berlin");
     expect(result).toEqual([
-      { start: "2026-01-01T12:00:00.000Z", end: "2026-01-01T12:30:00.000Z", priceCtPerKWh: 30 },
-      { start: "2026-01-01T12:30:00.000Z", end: "2026-01-01T13:00:00.000Z", priceCtPerKWh: 10 },
+      { start: "2026-01-01T12:00:00.000Z", end: "2026-01-01T12:30:00.000Z", priceCtPerKWh: 30, lowTariff: false },
+      { start: "2026-01-01T12:30:00.000Z", end: "2026-01-01T13:00:00.000Z", priceCtPerKWh: 10, lowTariff: true },
     ]);
     for (const time of ["2026-01-01T22:00:00Z", "2026-01-01T03:00:00Z"])
       expect(tariffIntervalsForHours([hour(time)], source, "Europe/Berlin")[0].priceCtPerKWh).toBe(20);
@@ -156,5 +156,134 @@ describe("Stromkosten mit zeitgleicher PV-Erzeugung", () => {
     expect(huge.electricityKWh).toBe(Number.MAX_VALUE);
     expect(huge.gridOnlyCostEuro).toBeNull(); expect(huge.totalCostEuro).toBeNull();
     expect(compareHeatingElectricity([hour(undefined, Number.MAX_VALUE)], [price(undefined, undefined, 100)], null, null).gridOnlyCostEuro).toBe(Number.MAX_VALUE);
+  });
+});
+
+describe("einmaliger morgendlicher NT-Speicher", () => {
+  const clock = (value: number) => `2026-01-01T${String(value).padStart(2, "0")}:00:00Z`;
+  const hoursFor = (values: Array<number | null>) => values.map((value, index) => hour(clock(index), value));
+  const contextFor = (hours: ReturnType<typeof hoursFor>, windows = [{ start: "22:00", end: "06:00", price_eur_kwh: .1 }]) => {
+    const source = tou(windows);
+    return { timezone: "UTC", tariffContext: tariffIntervalsForHours([{ time: "2025-12-31T23:00:00Z" }, ...hours], source, "UTC") };
+  };
+  const pvFor = (start = "2026-01-01T09:00:00Z", end = "2026-01-01T12:00:00Z") => [
+    pv(clock(0), start, 0), pv(start, end, 1),
+  ];
+  it("entnimmt chronologisch höchstens 6 kWh zu 18 Cent und bezieht den Rest normal", () => {
+    const hours = hoursFor([0, 0, 0, 0, 0, 0, 3, 4, 2, 0, 0, 0]);
+    const context = contextFor(hours);
+    const result = compareHeatingElectricity(hours, context.tariffContext, pvFor(), 8, context);
+    expect(result.storageElectricityKWh).toBe(6);
+    expect(result.storageCostEuro).toBeCloseTo(1.08);
+    expect(result.gridElectricityKWh).toBe(3);
+    expect(result.gridCostEuro).toBeCloseTo(.9);
+    expect(result.totalCostEuro).toBeCloseTo(1.98);
+    expect(result.gridOnlyCostEuro).toBeCloseTo(2.7);
+    expect(result.hours.slice(6, 9).map((value) => value.storageElectricityKWh)).toEqual([3, 3, 0]);
+    expect(result.hours.slice(6, 9).map((value) => value.gridElectricityKWh)).toEqual([0, 1, 2]);
+    expect(result.electricityKWh).toBe(result.storageElectricityKWh! + result.gridElectricityKWh! + result.pvElectricityKWh!);
+  });
+  it("berechnet eine volle Ladung und Nullbedarf ohne Mindestverbrauch", () => {
+    const hours = hoursFor([0, 0, 0, 0, 0, 0, 2, 2, 2, 0, 0, 0]);
+    const context = contextFor(hours);
+    expect(compareHeatingElectricity(hours, context.tariffContext, pvFor(), 8, context).totalCostEuro).toBeCloseTo(1.08);
+    const zero = compareHeatingElectricity(hours.map((value) => ({ ...value, electricityKWh: 0 })), [], null, null, context);
+    expect(zero.storageElectricityKWh).toBe(0); expect(zero.storageCostEuro).toBe(0); expect(zero.totalCostEuro).toBe(0);
+  });
+  it("teilt NT-Ende und ersten positiven PV-Beginn auch innerhalb einer Stunde", () => {
+    const hours = hoursFor([0, 0, 0, 0, 0, 0, 2, 2, 2, 0, 0, 0]);
+    const context = contextFor(hours, [{ start: "22:00", end: "06:30", price_eur_kwh: .1 }]);
+    const result = compareHeatingElectricity(hours, context.tariffContext, pvFor("2026-01-01T08:15:00Z"), 8, context);
+    expect(result.storageElectricityKWh).toBeCloseTo(3.5);
+    expect(result.hours[6].storageElectricityKWh).toBe(1);
+    expect(result.hours[8].storageElectricityKWh).toBe(.5);
+    expect(result.hours[8].gridElectricityKWh).toBeCloseTo(1.3);
+    expect(result.gridOnlyCostEuro).toBeCloseTo(1.6);
+  });
+  it("verwendet nur das letzte morgendliche NT-Ende und füllt am Abend nicht auf", () => {
+    const hours = hoursFor(Array.from({ length: 24 }, (_, index) => [2, 6, 7, 10, 18, 21].includes(index) ? 2 : 0));
+    const context = contextFor(hours, [{ start: "23:00", end: "02:00", price_eur_kwh: .1 },
+      { start: "04:00", end: "06:00", price_eur_kwh: .1 }, { start: "19:00", end: "20:00", price_eur_kwh: .1 }]);
+    const generation = [pv(clock(0), clock(9), 0), pv(clock(9), clock(11), 1), pv(clock(11), "2026-01-02T00:00:00Z", 0)];
+    const result = compareHeatingElectricity(hours, context.tariffContext, generation, 8, context);
+    expect(result.storageElectricityKWh).toBe(4);
+    expect(result.hours[2].storageElectricityKWh).toBe(0);
+    expect(result.hours[10].storageElectricityKWh).toBe(0);
+    expect(result.hours[18].storageElectricityKWh).toBe(0);
+    expect(result.hours[21].storageElectricityKWh).toBe(0);
+    expect(result.hours[21].gridElectricityKWh).toBe(2);
+  });
+  it("erkennt das NT-Ende um Mitternacht mit dem vorherigen Tarifintervall", () => {
+    const hours = hoursFor([2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    const context = contextFor(hours, [{ start: "22:00", end: "00:00", price_eur_kwh: .1 }]);
+    expect(compareHeatingElectricity(hours, context.tariffContext, pvFor(), 8, context).storageElectricityKWh).toBe(4);
+    const missingPrevious = { ...context, tariffContext: context.tariffContext.slice(1) };
+    expect(compareHeatingElectricity(hours, context.tariffContext, pvFor(), 8, missingPrevious).storageElectricityKWh).toBeNull();
+  });
+  it("erfindet keine NT-Fenster aus festen oder dynamischen günstigen Preisen", () => {
+    const hours = hoursFor([2, 2, 0, 0, 0, 0, 2, 2, 2, 0, 0, 0]);
+    for (const source of [state("10", { tariff_type: "fixed" }), state("10", { tariff_type: "dynamic" })]) {
+      const slots = [{ start: clock(0), end: clock(12), price_ct_kwh: 10 }];
+      const prices = tariffIntervalsForHours(hours, source, "UTC", slots);
+      const result = compareHeatingElectricity(hours, prices, pvFor(), 8, { timezone: "UTC", tariffContext: prices });
+      expect(result.storageElectricityKWh).toBe(0); expect(result.gridOnlyCostEuro).toBeCloseTo(1);
+    }
+  });
+  it("rechnet ohne positiven PV-Beginn und ohne nutzbares Morgenfenster keinen Speicher an", () => {
+    const hours = hoursFor(Array(12).fill(1)); const context = contextFor(hours);
+    const noPv = compareHeatingElectricity(hours, context.tariffContext, [pv(clock(0), clock(12), 0)], 8, context);
+    expect(noPv.storageElectricityKWh).toBe(0); expect(noPv.totalCostEuro).toBeCloseTo(noPv.gridOnlyCostEuro!);
+    const earlyPv = compareHeatingElectricity(hours, context.tariffContext, [pv(clock(0), clock(12), 1)], 8, context);
+    expect(earlyPv.storageElectricityKWh).toBe(0);
+  });
+  it("hält unvollständige oder überlappende PV- und Tarifdaten unbekannt", () => {
+    const hours = hoursFor(Array(12).fill(1)); const context = contextFor(hours);
+    for (const generation of [null, pvFor().slice(1), [...pvFor(), pv(clock(0), clock(1), 0)],
+      [pv(clock(0), clock(9), null), pv(clock(9), clock(12), 1)]]) {
+      const result = compareHeatingElectricity(hours, context.tariffContext, generation, 8, context);
+      expect(result.storageElectricityKWh).toBeNull(); expect(result.totalCostEuro).toBeNull();
+      expect(result.gridOnlyCostEuro).not.toBeNull();
+    }
+    for (const tariffContext of [[], context.tariffContext.slice(0, -1), [...context.tariffContext, context.tariffContext[0]]]) {
+      const result = compareHeatingElectricity(hours, context.tariffContext, pvFor(), 8, { ...context, tariffContext });
+      expect(result.storageElectricityKWh).toBeNull(); expect(result.storageCostEuro).toBeNull(); expect(result.totalCostEuro).toBeNull();
+    }
+  });
+  it("hält vollständige PV-Deckung auch bei unbekanntem Tarif und Speicher berechenbar", () => {
+    const result = compareHeatingElectricity([hour()], [], [pv(undefined, undefined, 3)], 8, { tariffContext: [], timezone: "UTC" });
+    expect(result.storageElectricityKWh).toBe(0); expect(result.gridElectricityKWh).toBe(0);
+    expect(result.storageCostEuro).toBe(0); expect(result.totalCostEuro).toBeCloseTo(.16);
+    expect(result.gridOnlyCostEuro).toBeNull();
+  });
+  it("setzt nach unbekanntem Morgenbedarf keine neue volle Speicherladung voraus", () => {
+    const hours = hoursFor([0, 0, 0, 0, 0, 0, null, 2, 2, 0, 0, 0]); const context = contextFor(hours);
+    const result = compareHeatingElectricity(hours, context.tariffContext, pvFor(), 8, context);
+    expect(result.storageElectricityKWh).toBeNull(); expect(result.totalCostEuro).toBeNull();
+    expect(result.hours[7].storageElectricityKWh).toBeNull(); expect(result.hours[8].totalCostEuro).toBeNull();
+    expect(result.hours[9].storageElectricityKWh).toBe(0);
+    const prices = context.tariffContext.filter((value) => value.start !== "2026-01-01T06:00:00.000Z");
+    const missingTariff = compareHeatingElectricity(hours.map((value) => ({ ...value, electricityKWh: 2 })), prices, pvFor(), 8, context);
+    expect(missingTariff.hours[7].storageElectricityKWh).toBeNull();
+  });
+  it("verwendet absolute Zeitgrenzen bei beiden Zeitumstellungen", () => {
+    for (const [start, count] of [["2026-03-28T23:00:00Z", 23], ["2026-10-24T22:00:00Z", 25]] as const) {
+      const beginning = Date.parse(start);
+      const hours = Array.from({ length: count }, (_, index) => hour(new Date(beginning + index * 3600000).toISOString(), 1));
+      const source = tou([{ start: "22:00", end: "06:00", price_eur_kwh: .1 }]);
+      const tariffContext = tariffIntervalsForHours([{ time: new Date(beginning - 3600000).toISOString() }, ...hours], source, "Europe/Berlin");
+      const pvStart = new Date(beginning + (count === 23 ? 8 : 10) * 3600000).toISOString();
+      const generation = [pv(start, pvStart, 0), pv(pvStart, new Date(beginning + count * 3600000).toISOString(), 1)];
+      const result = compareHeatingElectricity(hours, tariffContext, generation, 8, { tariffContext, timezone: "Europe/Berlin" });
+      expect(result.storageElectricityKWh).toBe(3);
+      expect(result.storageCostEuro).toBeCloseTo(.54);
+    }
+  });
+  it("ändert weder Prognosen noch Tarifkontext und wird ohne Option nicht aktiv", () => {
+    const hours = hoursFor(Array(12).fill(1)); const context = contextFor(hours); const generation = pvFor();
+    const before = JSON.stringify([hours, context, generation]);
+    compareHeatingElectricity(hours, context.tariffContext, generation, 8, context);
+    expect(JSON.stringify([hours, context, generation])).toBe(before);
+    const legacy = compareHeatingElectricity(hours, context.tariffContext, generation, 8);
+    expect(legacy.storageElectricityKWh).toBe(0); expect(legacy.storageCostEuro).toBe(0);
   });
 });

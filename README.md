@@ -1,7 +1,7 @@
 # heizlast-ha
 
 Home-Assistant-Integration mit einer interaktiven digitalen Grundrisskarte.
-Version **0.20.0** öffnet den fest implementierten Grundriss direkt in der
+Version **0.22.0** öffnet den fest implementierten Grundriss direkt in der
 HA-Seitenleiste. Erdgeschoss und Obergeschoss zeigen die aus den Werkplänen
 übernommenen Raumkonturen und die belegten Normheizlasten von elf Rechenzonen.
 Räume lassen sich anklicken; rechts stehen Fläche, Auslegungstemperatur,
@@ -26,7 +26,8 @@ stündlichen Wetterdaten berechnet. Ein Diagramm zeigt pro Stunde die
 Heizlast und den nötigen gemeinsamen Vorlauf. Manuelle FBH- und Wetterfelder
 entfallen; Raumtemperaturen, Grundriss und Planungsdaten entsprechen Live.
 Zusätzlich lässt sich eine Bosch-Wärmepumpe auswählen und ihr Strombedarf mit
-Gas, Netzstromtarif und zeitgleicher PV-Erzeugung vergleichen.
+Gas, Netzstromtarif, zeitgleicher PV-Erzeugung und einem angenommenen
+6-kWh-Stromspeicher vergleichen.
 
 Die Außentemperatur wird über Open-Meteo mit dem in Home Assistant eingestellten
 Standort abgefragt: beim Laden der Integration und anschließend alle **30 Minuten**.
@@ -325,7 +326,8 @@ als „AW5800 mit 5 kW“ gewünschte erste Modell; 5 kW bezeichnet die Modellkl
 keine konstante Heizleistung. Es gibt keine weiteren Wärmepumpen oder
 manuell einstellbaren Leistungs- und COP-Werte. Gas bleibt die Voreinstellung.
 Bei ausgewählter Wärmepumpe stehen drei Tageswerte nebeneinander: Gaskosten,
-Wärmepumpenkosten bei reinem Netzbezug und Wärmepumpenkosten mit PV.
+Wärmepumpenkosten bei reinem Netzbezug und Wärmepumpenkosten mit PV und Speicher.
+Speicherenergie und Speicherkosten werden zusätzlich getrennt ausgewiesen.
 Die gewählte Stunde zeigt zusätzlich COP, Strombedarf, verfügbare Heizleistung
 und gegebenenfalls den ungedeckten Bedarf. Der feste Grundriss bleibt erhalten.
 
@@ -375,18 +377,43 @@ Drei Sensoren lassen sich zuordnen:
   Der gültige gespeicherte Wert wird für die PV-Kosten des Tages verwendet.
 
 Der Kostenvergleich rechnet mit zeitgleichen Intervallen: Wärmepumpenstrom
-wird maximal bis zur prognostizierten PV-Erzeugung aus PV gedeckt, der Rest
-kommt aus dem Netz. Netzstrom kostet den jeweils geltenden Tarif; PV-Strom
-kostet die **entgangene Einspeisevergütung**. Summe beider Werte ergibt die
-Wärmepumpenkosten mit PV. Andere Haushaltsverbraucher und Batteriespeicher
-fehlen: Dies ist eine Obergrenze der PV-Nutzung für die Wärmepumpe, keine
-Vorhersage des tatsächlichen Überschusses und keine Tarifoptimierung.
+wird maximal bis zur prognostizierten PV-Erzeugung aus PV gedeckt. In der unten
+beschriebenen Morgenlücke kann zusätzlich Strom aus dem Speicher kommen; den
+Rest deckt das Netz. Netzstrom kostet den jeweils geltenden Tarif; PV-Strom
+kostet die **entgangene Einspeisevergütung**. Die Summe aus Netz-, PV- und
+Speicherkosten ergibt die Wärmepumpenkosten mit PV und Speicher. Andere
+Haushaltsverbraucher fehlen: Dies ist eine Obergrenze der PV-Nutzung für die
+Wärmepumpe, keine Vorhersage des tatsächlichen Überschusses und keine
+Tarifoptimierung.
 Innerhalb eines Intervalls gilt gleichmäßige Leistung als Annahme. Tarifwechsel
 teilen Intervalle anteilig; PV-Energie wird nicht in andere Stunden verschoben.
 Zeitumstellungen und gebrochene UTC-Offsets behalten ihre absoluten Zeitgrenzen.
 Lücken und überlappende Daten bleiben unbekannt. Die Netzreferenz funktioniert
 auch ohne PV-Quelle; bei null PV-Bedarf ist keine Einspeisevergütung nötig.
 Grundpreise und Warmwasser fehlen in allen Vergleichswerten.
+
+Für den **Stromspeicher** gilt die feste Benutzerannahme: Am Ende des
+Niedrigtarifs stehen **6 kWh nutzbare elektrische Energie** bereit. Die
+Entnahme kostet **18 ct/kWh**; dieser vollständige Kostenansatz wird einmal
+berechnet. Zusätzliche Ladekosten oder ein unbekannter Speicherwirkungsgrad
+werden nicht angesetzt. Der Speicher deckt ausschließlich die Zeit vom letzten
+belegten Niedrigtarifende bis zum Beginn des ersten PV-Prognoseintervalls mit
+positiver Erzeugung am selben Tag in der HA-Zeitzone. Als Niedrigtarif gelten
+SAX-`time_of_use`-Fenster mit einem Preis unter `base_price_eur_kwh`.
+Der Zeitkontext umfasst auch die Stunde vor Tagesbeginn, damit ein
+Niedrigtarifende um Mitternacht erkannt wird.
+
+Die Entnahme erfolgt chronologisch bis insgesamt 6 kWh; ein darüber
+hinausgehender Bedarf wird zum jeweiligen Netzpreis berechnet. Tarif- und
+PV-Grenzen innerhalb einer Stunde werden anteilig behandelt. Ohne belegtes
+Niedrigtarifende oder ohne positiven PV-Beginn wird keine Speicherentnahme
+angenommen, auch an vollständig PV-freien Tagen. Datenlücken bleiben unbekannt.
+Es gibt keine zweite Ladung am Tag, keine Abendnutzung und keinen Übertrag von
+PV-Energie zwischen Stunden. Ladezustand, Lade-/Entladeleistung und tatsächliche
+Speichersteuerung werden nicht prognostiziert. Die reine Netzstromreferenz
+rechnet weiterhin ohne PV und Speicher. Diese Annahme ergänzt ausschließlich
+den Stromkostenvergleich; sie verändert weder Wärmebedarf, FBH-Leistung noch
+den Planungsdatensatz und stellt kein thermisches Speichermodell dar.
 
 Die Quellen werden über `heizlast_ha/get_energy_sources` anhand ihrer
 Integrations- und Sensoridentitäten angeboten, nicht über Namensvermutungen.
@@ -541,7 +568,10 @@ historische Zuordnungen bleiben lesbar. Alte Speicherstände ohne diese Felder
 bleiben ohne Umschreiben gültig. Jeder Speicherbefehl erhält die anderen
 Einstellungen und ungenutzte Altdaten. PV-Prognosen, Tarifreihen und
 Herstellerkennlinien werden nicht im Projekt oder Planungsdatensatz gespeichert.
-Diese Werte sind Benutzerkonfiguration und verändern keine Planungsdaten.
+Die gespeicherte Auswahl ist Benutzerkonfiguration und verändert keine
+Planungsdaten.
+Die festen Speicherannahmen von 6 kWh und 18 ct/kWh gehören ebenfalls zum
+Rechenmodell und erzeugen keine zusätzlichen gespeicherten Einstellungen.
 Normale Benutzer erhalten nur Lesezugriff.
 
 Sensorzuordnungen, feste Raumtemperaturen, Gaspreis und Energieauswahl werden über Home Assistants

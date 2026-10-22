@@ -29,7 +29,8 @@ Diese Vorgaben gelten für das gesamte Repository.
   anbieten. Am festen Plan sind nur Sensorzuordnungen und feste Raumtemperaturen
   der elf Rechenzonen veränderbar. Der zusätzliche Simulationstab bietet die
   Auswahl von Tag und Stunde sowie separat gespeicherte Gaspreis- und Energieeinstellungen für
-  den Vergleich von Gas, Bosch-Wärmepumpe, Netzstrom und PV; der Planungsdatensatz wird dadurch nicht verändert.
+  den Vergleich von Gas, Bosch-Wärmepumpe, Netzstrom, PV und angenommenem
+  Stromspeicher; der Planungsdatensatz wird dadurch nicht verändert.
 - Dargestellt wird ausschließlich das beheizte Wohnhaus. Spitzboden,
   Technikraum, Gerätelager und Garage bleiben außerhalb des Dashboards.
 
@@ -159,7 +160,7 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
 ### Versionierung und Paketinhalt
 
 - `VERSION` ist die zentrale Projektversion im Format `MAJOR.MINOR.PATCH`,
-  aktuell `0.21.0`. Für eine neue Implementierung die Version nach SemVer
+  aktuell `0.22.0`. Für eine neue Implementierung die Version nach SemVer
   erhöhen. Jeder Merge benötigt eine bisher unveröffentlichte Version für das
   verpflichtende HACS-Release; reine Dokumentationsänderungen erhöhen mindestens
   die Patch-Version. CI-Builds erhalten zusätzlich eine eindeutige Buildkennung.
@@ -396,11 +397,29 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   unbekannt. Kein impliziter Heizstab oder Gas-Backup. Nullbedarf ist gültig.
 - `energy-comparison.ts` bilanziert zeitgleichen Netz-/PV-Strom ohne Übertrag
   zwischen Stunden. PV-Erzeugung ist vereinfachend vollständig für die WP
-  verfügbar, keine Haushaltslast, Batterie oder Lastverschiebung. Die PV-Nutzung
+  verfügbar, keine Haushaltslast. Die PV-Nutzung
   ist eine Obergrenze; gleichmäßige Leistung im Intervall ist eine Annahme.
   Kosten = Netzstrom zum Intervalltarif + PV-Strom zur entgangenen
-  Einspeisevergütung. Daneben stets Netzreferenz ohne PV und Gas nach bisheriger
+  Einspeisevergütung + Strom aus dem unten beschriebenen Speicher zu 18 ct/kWh.
+  Daneben stets Netzreferenz ohne PV und Speicher sowie Gas nach bisheriger
   95-%-Annahme. Lücken/Überlappungen bleiben unbekannt; Nullbedarf bleibt null.
+- Der Stromspeicher ist eine feste Benutzerannahme mit 6 kWh nutzbarer
+  elektrischer Energie, die am Ende des Niedrigtarifs vollständig bereitsteht.
+  Entnahme kostet insgesamt 18 ct/kWh, ohne doppelte Ladekosten oder einen
+  erfundenen Wirkungsgrad. Ausschließlich vom letzten belegten Niedrigtarifende
+  bis zum Beginn des ersten positiven PV-Prognoseintervalls desselben
+  HA-lokalen Tages wird chronologisch bis 6 kWh entnommen; Mehrbedarf bleibt
+  Netzbezug zum Intervalltarif. Niedrigtarif nur aus SAX-`time_of_use`-Fenstern
+  unter `base_price_eur_kwh` ableiten. Tarifkontext einschließlich der Stunde
+  vor Tagesbeginn erhält ein Ende um Mitternacht. Unterstündliche Grenzen und
+  Zeitumstellung berücksichtigen. Ohne belegtes Ende oder positiven PV-Beginn
+  keine Speicheranrechnung, auch bei vollständig PV-freiem Tag; Datenlücken
+  bleiben unbekannt. Keine zweite Ladung, Abendnutzung, PV-Verschiebung zwischen
+  Stunden, Haushaltslast, SOC-, Leistungs- oder Steuerungsprognose. Speicherenergie
+  und Speicherkosten separat anzeigen. Nur der Vergleich Netz/PV/Speicher wird
+  ergänzt; reine Netzreferenz, Wärmebedarf und FBH bleiben unverändert. Kein
+  thermischer Speicher und keine Änderung an `planning-data.json` oder den
+  gespeicherten Energieeinstellungen.
 - Adminspeicherung `heizlast_ha/save_energy_settings` mit gemeinsamer Revision
   und vollständigem `settings`-Objekt: `heat_generator` (`gas` oder
   `bosch_aw5800_5`), `pv_forecast_entity_id`, `electricity_price_entity_id`,
@@ -427,6 +446,8 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   für gespeicherte Auswahl. Die UI liest Quellen jede Minute, steuert nichts.
 - Tests prüfen Herstellerpunkte, Vorlauf-/Außeneinfluss, Leistungslimit,
   unbekannte/Nullwerte, Tarifgrenzen, Zeitumstellung, PV-Zeitgleichheit,
+  Speicherfenster, 6-kWh-Grenze, 18-ct-Kosten, Restnetzbezug, fehlende Grenzen,
+  ausbleibende Mehrfachladung und unveränderte Netzreferenz,
   Opportunitätskosten, getrennte Datenlücken, Immutabilität, Quellidentität,
   Leserechte, Speichern, Konflikte, Speicherfehler und Erhalt bisheriger Daten.
   README und Modellkontext im selben Änderungssatz nachführen.

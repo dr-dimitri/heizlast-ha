@@ -124,6 +124,39 @@ describe("energy comparison dashboard", () => {
     expect(text(card, ".grid-only-cost")).toBe(euro(.4)); expect(text(card, ".heat-pump-cost")).toBe(euro(.2));
   });
 
+  it("includes morning storage at 18 ct until PV begins and preserves the grid reference", async () => {
+    const states = tariffStates();
+    states["sensor.electricity_price"].attributes = { unit_of_measurement: "ct/kWh", tariff_type: "time_of_use", base_price_eur_kwh: .4,
+      windows: [{ start: "22:00", end: "06:30", price_eur_kwh: .2 }] };
+    const morning = day();
+    morning.hours = [6, 7, 8, 9].map((hour) => ({ ...morning.hours[0], time: `2026-10-22T0${hour}:00:00Z` }));
+    morning.heatEnergyKWh = 11.64;
+    const handler = async (message: Record<string, unknown>) => {
+      if (message.type === "heizlast_ha/get_energy_sources") return clone(sources);
+      if (message.type === "heizlast_ha/get_energy_forecast") return { ...pvFor(morning.hours[0].time),
+        intervals: morning.hours.map((hour, index) => ({ start: hour.time,
+          end: new Date(Date.parse(hour.time) + 3600000).toISOString(), energy_kwh: index === 3 ? 1 : 0 })) };
+      throw new Error("request");
+    };
+    const { card, hass, callWS } = await mount({ states, handler });
+    card.day = morning; await settle(card);
+    expect(content(card)).toContain("Netz + PV + Speicher");
+    expect(content(card)).toContain("6 kWh nutzbarer Strom zu 18 ct/kWh");
+    expect(text(card, ".storage-energy")).toBe("≈ 2,5 kWh");
+    expect(text(card, ".storage-cost")).toBe(euro(.45));
+    expect(text(card, ".grid-energy")).toBe("≈ 0,5 kWh");
+    expect(text(card, ".pv-energy")).toBe("≈ 1 kWh");
+    expect(text(card, ".grid-only-cost")).toBe(euro(1.5));
+    expect(text(card, ".heat-pump-cost")).toBe(euro(.63));
+    expect(callWS.mock.calls.every(([message]) => !String(message.type).includes("save"))).toBe(true);
+
+    const changed = clone(states);
+    changed["sensor.electricity_price"].attributes = { unit_of_measurement: "ct/kWh", tariff_type: "fixed" };
+    card.hass = { ...hass, states: changed }; await settle(card);
+    expect(text(card, ".storage-energy")).toBe("≈ 0 kWh");
+    expect(text(card, ".heat-pump-cost")).toBe(euro(1.28));
+  });
+
   it("shows selected-hour COP and capacity deficits while withholding incomplete daily heat-pump costs", async () => {
     const { card } = await mount(); const limited = day();
     limited.hours[1] = { ...limited.hours[1], outdoorTemperatureC: -7, heatDemandW: 6000 };
