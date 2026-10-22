@@ -1,7 +1,7 @@
 /** Local preview only. Production receives authenticated Home Assistant state. */
 import "./card";
 import type { HeizlastHaPanel } from "./card";
-import { clone, type HomeAssistant, type Project } from "./types";
+import { clone, type EnergySettings, type HomeAssistant, type Project } from "./types";
 
 if (!import.meta.env.DEV) throw new Error("Development preview must not run in production.");
 const storageKey = "heizlast-ha-local-preview-v4";
@@ -18,12 +18,16 @@ let hass: HomeAssistant = {
   async callWS<T>(message: Record<string, unknown>): Promise<T> {
     if (message.type === "heizlast_ha/get_project") return clone(project) as T;
     if (message.type === "heizlast_ha/get_weather") return { timezone: "UTC", fetched_at: null, days: [] } as T;
+    if (message.type === "heizlast_ha/get_energy_sources") return { pv_forecast: [], electricity_price: [], feed_in_tariff: [] } as T;
+    if (message.type === "heizlast_ha/get_energy_forecast") throw { code: "source_unavailable" };
     if (readOnly) throw { code: "unauthorized" };
     if (message.revision !== project.revision) throw { code: "conflict" };
     if (message.type === "heizlast_ha/save_gas_price") {
       project = { ...project, revision: project.revision + 1 };
       if (message.gas_price_ct_per_kwh === null) delete project.gas_price_ct_per_kwh;
       else project.gas_price_ct_per_kwh = message.gas_price_ct_per_kwh as number;
+    } else if (message.type === "heizlast_ha/save_energy_settings") {
+      project = { ...project, revision: project.revision + 1, energy_settings: clone(message.settings) as EnergySettings };
     } else if (message.type === "heizlast_ha/save_planning_bindings") {
       const bindings = clone(message.bindings) as Record<string, string[]>;
       if (Object.values(bindings).some((ids) => ids.length)) throw { code: "invalid_bindings" };
