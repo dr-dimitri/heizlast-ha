@@ -43,6 +43,7 @@ def ws_get_project(
         vol.Required("type"): f"{DOMAIN}/save_planning_bindings",
         vol.Required("revision"): int,
         vol.Required("bindings"): dict,
+        vol.Optional("temperatures"): dict,
     }
 )
 @websocket_api.require_admin
@@ -52,10 +53,10 @@ async def ws_save_planning_bindings(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Commit sensor selections for the bundled calculation zones."""
+    """Commit sensor selections and fixed temperatures for calculation zones."""
     try:
         result = await get_project(hass).async_save_planning_bindings(
-            msg["revision"], msg["bindings"]
+            msg["revision"], msg["bindings"], msg.get("temperatures")
         )
     except ProjectError as err:
         connection.send_error(msg["id"], err.code, str(err))

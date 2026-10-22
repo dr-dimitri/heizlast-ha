@@ -26,9 +26,9 @@ Diese Vorgaben gelten für das gesamte Repository.
   für Erdgeschoss und Obergeschoss sowie anklickbaren Räumen.
 - Es gibt ausschließlich diesen einen fest implementierten Grundriss. Keine
   Neuanlage, kein Import und keine Geometriebearbeitung für eigene Grundrisse
-  anbieten. Am festen Plan sind nur Sensorzuordnungen der elf Rechenzonen
-  veränderbar. Der zusätzliche Simulationstab verändert ausschließlich
-  Szenarioeingaben und Modellannahmen, nicht den Planungsdatensatz.
+  anbieten. Am festen Plan sind nur Sensorzuordnungen und feste Raumtemperaturen
+  der elf Rechenzonen veränderbar. Der zusätzliche Simulationstab verändert
+  ausschließlich Szenarioeingaben und Modellannahmen, nicht den Planungsdatensatz.
 - Dargestellt wird ausschließlich das beheizte Wohnhaus. Spitzboden,
   Technikraum, Gerätelager und Garage bleiben außerhalb des Dashboards.
 
@@ -158,7 +158,7 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
 ### Versionierung und Paketinhalt
 
 - `VERSION` ist die zentrale Projektversion im Format `MAJOR.MINOR.PATCH`,
-  aktuell `0.16.0`. Für eine neue Implementierung die Version nach SemVer
+  aktuell `0.17.0`. Für eine neue Implementierung die Version nach SemVer
   erhöhen. Jeder Merge benötigt eine bisher unveröffentlichte Version für das
   verpflichtende HACS-Release; reine Dokumentationsänderungen erhöhen mindestens
   die Patch-Version. CI-Builds erhalten zusätzlich eine eindeutige Buildkennung.
@@ -242,24 +242,36 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   festen Grundriss. Das Frontend bündelt keine Import-/Editor-Module oder
   zugehörige Bibliotheken mehr.
 - Der authentifizierte Leseendpunkt `heizlast_ha/get_project` liefert nur
-  `revision` und `planning_bindings`. `heizlast_ha/save_planning_bindings`
+  `revision`, `planning_bindings` und `planning_temperatures`.
+  `heizlast_ha/save_planning_bindings`
   erfordert Administratorrechte und eine aktuelle optimistische Projekt-Revision.
-  Änderungen sind auf Sensorzuordnungen der elf festen Rechenzonen begrenzt.
+  Änderungen sind auf Sensorzuordnungen und feste Raumtemperaturen der elf
+  festen Rechenzonen begrenzt. Das optionale Feld `temperatures` enthält die
+  vollständige Temperaturzuordnung in °C; ohne dieses Feld bleiben bisherige
+  feste Werte erhalten. Sensorzuordnungen löschen den festen Wert ihrer Zone
+  immer, auch bei fehlenden/ungültigen Sensorwerten. Ein späteres Entfernen
+  des Sensors stellt keinen festen Wert wieder her. Nur endliche Zahlen ab
+  −273,15 °C sind gültig; fehlende Schlüssel bedeuten nicht vorhanden. Alte
+  Speicherstände bleiben ohne Umschreiben lesbar.
   Neue Zuordnungen müssen echte Temperatursensoren sein; historische
   Zuordnungen bleiben lesbar. `heizlast_ha/save_project` wird nicht registriert;
   eigene Raumgeometrie lässt sich auch über die API nicht mehr hinzufügen.
-- Sensorzuordnungen werden dauerhaft in Home Assistant gespeichert. Vorhandene
+- Sensorzuordnungen und feste Raumtemperaturen werden dauerhaft in
+  Home Assistant gespeichert. Vorhandene
   eigene Pläne und deren alte Sensorzuordnungen bleiben bei Updates intern
   unverändert als ungenutzte Altdaten erhalten, werden aber nicht an das
   Dashboard geliefert. Die Integration schreibt keine neuen Benutzerpläne.
   Normheizlasten und Auslegungstemperaturen sind ausschließlich Planungsdaten;
-  aktuelle Temperatur-/Strahlungswerte werden aus Home Assistants Zustand
-  gelesen. Die aktuelle Heizlast ist ausdrücklich eine temperaturbasierte
+  aktuelle Sensor-/Strahlungswerte werden aus Home Assistants Zustand
+  gelesen. Ohne Raumfühler kann ein expliziter fester Temperaturwert verwendet
+  werden; er ist kein Messwert und wird nicht im Planungsdatensatz gespeichert.
+  Die aktuelle Heizlast ist ausdrücklich eine temperaturbasierte
   Schätzung: Normheizlast × max(0, Raumtemperatur − Außentemperatur) /
   (Auslegung innen − Auslegung außen), mit Umrechnung von °C/°F/K.
   Der belegte Außen-Auslegungswert −12,2 °C stammt aus Heizlastberechnung,
-  Seite 2 / G1. Genau ein Raumfühler und ein rollenmarkierter Außensensor sind
-  erforderlich; fehlende/ungültige/mehrdeutige Werte ergeben ?, Ergebnisse ≈.
+  Seite 2 / G1. Genau ein Raumfühler oder ohne Sensor eine feste Raumtemperatur
+  sowie ein rollenmarkierter Außensensor sind erforderlich; fehlende/ungültige/
+  mehrdeutige Werte ergeben ?, Ergebnisse ≈.
   Verfügbare solare Gewinne werden mit belegten Raumfensterflächen und den
   EnEV-Faktoren aus Abschnitt 5.3 / Seiten 5–6 abgezogen, mindestens bis 0 W:
   g-Wert 0,50, Rahmenfaktor 0,70, Verschattung 0,90, Sonnenschutz 1,00 und
@@ -304,6 +316,15 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   Die aktuelle Heizlast wird temperaturbasiert und bei verfügbaren frischen
   Wetterdaten mit solaren Gewinnen nach EnEV-Annahmen geschätzt; fehlende
   Temperaturen ergeben `?`, fehlende Solarwerte die gekennzeichnete Basisrechnung.
+  Unter der Sensorauswahl steht eine feste Raumtemperatur (°C), die nur
+  Administratoren speichern können. Sensorwahl leert und deaktiviert das Feld;
+  Leserechte zeigen gespeicherte Eingaben an. Entwürfe, Verwerfen, Konflikte und
+  Speicherfehler betreffen beide Einstellungen gemeinsam. Pro Geschoss steht
+  zusätzlich die Summe ungerundeter aktueller Raumheizlasten einschließlich
+  verfügbarer Solargewinne. Bei einer fehlenden Raumheizlast steht ? mit der
+  Anzahl berechenbarer Rechenzonen; fehlende Werte werden nicht als null summiert.
+  Tests prüfen Speicherung, Sensorvorrang, Löschung, Nullwerte, ungültige Eingaben,
+  Leserechte und Geschosssummen mit gemischten Temperaturquellen.
   Die Raumlabels verwenden dieselbe Schriftfamilie und Namensgröße ohne
   raumweise Streckung; die Wertezeile hat die halbe Namensschriftgröße.
   Der Simulationstab verwendet dieselben Labels und Konturen. Szenarioeingaben

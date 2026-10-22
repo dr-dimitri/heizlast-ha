@@ -1,8 +1,9 @@
 import { LitElement, html, svg, nothing, type PropertyValues } from "lit";
 import { planningStyles } from "./planning-styles";
 import { planningData, floorLoad, floorName, polygonPoints, shapesForZone, zonesForFloor, type PlanningFloor, type PlanShape } from "./planning-types";
-import { bindingFor, clone, entityName, formatNumber, measuredTemperatureLabel, outdoorTemperatureLabel, roleSensor, solarRadiationLabel, temperatureSensors, type CardConfig, type HomeAssistant, type Project } from "./types";
-import { estimatedHeatLoadW, solarGainsW } from "./heat-load";
+import { bindingFor, clone, entityName, formatNumber, measuredTemperatureLabel, outdoorTemperatureLabel, roleSensor, solarRadiationLabel, temperatureCelsius, temperatureSensors, type CardConfig, type HomeAssistant, type Project } from "./types";
+import { solarGainsW } from "./heat-load";
+import { heatLossW } from "./thermal-model";
 import { defaultSimulationParameters, defaultSimulationScenario, HEATING_CALIBRATION, SIMULATION_RANGES, simulateBuilding, type SimulationParameters, type SimulationResult, type SimulationScenario, type ZoneSimulationResult } from "./simulation-core";
 
 type ScenarioField = Exclude<keyof SimulationScenario, "weather" | "month">;
@@ -37,7 +38,7 @@ export class HeizlastGrundrissCard extends LitElement {
   static styles = planningStyles;
   static properties = {
     hass: { attribute: false }, config: { state: true }, selectedFloor: { state: true }, selectedZone: { state: true },
-    project: { state: true }, bindings: { state: true }, loading: { state: true }, busy: { state: true },
+    project: { state: true }, bindings: { state: true }, temperatures: { state: true }, loading: { state: true }, busy: { state: true },
     error: { state: true }, conflict: { state: true }, notice: { state: true }, sensorSearch: { state: true },
     selectedView: { state: true }, scenarioInputs: { state: true }, parameterInputs: { state: true }, weather: { state: true }, month: { state: true }, latitudeInput: { state: true },
   };
@@ -54,6 +55,7 @@ export class HeizlastGrundrissCard extends LitElement {
   private simulationCache?: { scenario: Record<ScenarioField, string>; parameters: Record<keyof SimulationParameters, string>; weather: SimulationScenario["weather"]; month: string; latitude: string; result: SimulationResult };
   private project?: Project;
   private bindings: Record<string, string[]> = {};
+  private temperatures: Record<string, string> = {};
   private loading = true;
   private busy = false;
   private error = "";
@@ -67,22 +69,40 @@ export class HeizlastGrundrissCard extends LitElement {
   setConfig(config: CardConfig): void { this.config = { ...config }; }
   private get admin(): boolean { return this.hass?.user?.is_admin === true; }
   private get zone() { return planningData.zones.find((zone) => zone.id === this.selectedZone)!; }
-  private get dirty(): boolean { return JSON.stringify(this.bindings) !== JSON.stringify(this.project?.planning_bindings ?? {}); }
+  private get dirty(): boolean { return JSON.stringify(this.bindings) !== JSON.stringify(this.project?.planning_bindings ?? {}) || JSON.stringify(this.temperatureValues) !== JSON.stringify(this.project?.planning_temperatures ?? {}) || this.invalidTemperatures; }
+  private get temperatureValues(): Record<string, number> {
+    return Object.fromEntries(Object.entries(this.temperatures).filter(([, value]) => value !== "").map(([key, value]) => [key, this.simulationNumber(value)]));
+  }
+  private get invalidTemperatures(): boolean { return Object.values(this.temperatureValues).some((value) => !Number.isFinite(value) || value < -273.15); }
+  private resetDraft(): void {
+    this.bindings = clone(this.project?.planning_bindings ?? {});
+    this.temperatures = Object.fromEntries(Object.entries(this.project?.planning_temperatures ?? {}).filter(([key]) => !bindingFor(this.bindings, key).length).map(([key, value]) => [key, String(value)]));
+  }
   private number(value: number, decimals = 1): string { return formatNumber(value, this.hass, { maximumFractionDigits: decimals }); }
   private readings(id: number) {
     const sensors = bindingFor(this.bindings, String(id));
     const zone = planningData.zones.find((zone) => zone.id === id)!;
     const room = !this.loading && sensors.length === 1 ? this.hass?.states[sensors[0]] : undefined;
-    const losses = estimatedHeatLoadW(zone, room, roleSensor(this.hass, "outdoor_temperature"), planningData.building.design_outdoor_temperature_c);
+    const manual = !this.loading && !sensors.length ? this.temperatureValues[String(id)] : undefined;
+    const inside = sensors.length ? temperatureCelsius(room) : manual;
+    const losses = heatLossW(zone, inside, temperatureCelsius(roleSensor(this.hass, "outdoor_temperature")), planningData.building.design_outdoor_temperature_c);
     const solar = solarGainsW(zone, roleSensor(this.hass, "solar_radiation"), planningData.solar_assumptions);
     const current = losses === null ? null : Math.max(0, losses - (solar ?? 0));
     return {
-      temperature: measuredTemperatureLabel(room, this.hass),
+      temperature: !sensors.length && typeof manual === "number" && Number.isFinite(manual) && manual >= -273.15 ? `${this.number(manual)} °C` : measuredTemperatureLabel(room, this.hass),
+      currentW: current,
       calculated: Number.isFinite(zone.load) ? `${this.number(zone.load)} W` : "?",
       current: current === null ? "?" : `≈ ${this.number(current, 0)} W`,
       solar: solar === null ? "?" : `≈ ${this.number(solar, 0)} W`,
       solarIncluded: losses !== null && solar !== null,
     };
+  }
+
+  private renderCurrentFloorLoad() {
+    const values = zonesForFloor(this.selectedFloor).map((zone) => this.readings(zone.id).currentW);
+    const known = values.filter((value): value is number => value !== null);
+    const total = known.reduce((sum, value) => sum + value, 0);
+    return html`<span class="floor-total current-floor-load">Summe aktuelle Heizlast ${this.selectedFloor}<strong>${known.length === values.length && Number.isFinite(total) ? this.watts(total) : "?"}</strong><small>${known.length} / ${values.length} Rechenzonen berechenbar</small></span>`;
   }
 
   private readingDescription(id: number): string {
@@ -203,7 +223,7 @@ export class HeizlastGrundrissCard extends LitElement {
     this.loading = true; this.error = ""; this.notice = "";
     try {
       this.project = await this.hass.callWS<Project>({ type: "heizlast_ha/get_project" });
-      this.bindings = clone(this.project.planning_bindings ?? {});
+      this.resetDraft();
       this.conflict = false;
     } catch { this.error = "Sensorzuordnungen konnten nicht geladen werden. Die Planungsdaten bleiben sichtbar."; }
     finally { this.loading = false; }
@@ -228,33 +248,45 @@ export class HeizlastGrundrissCard extends LitElement {
     if (!this.admin || !this.project || this.busy || this.conflict) return;
     const key = String(this.selectedZone), current = bindingFor(this.bindings, key);
     this.bindings = { ...this.bindings, [key]: checked ? [...new Set([...current, id])] : current.filter((value) => value !== id) };
+    if (checked) {
+      const temperatures = { ...this.temperatures };
+      delete temperatures[key];
+      this.temperatures = temperatures;
+    }
+    this.notice = "";
+  }
+
+  private setTemperature(input: HTMLInputElement): void {
+    if (!this.admin || !this.project || this.busy || this.conflict || bindingFor(this.bindings, String(this.selectedZone)).length) return;
+    // Keep an incomplete number invalid rather than interpreting it as a cleared field.
+    this.temperatures = { ...this.temperatures, [this.selectedZone]: input.validity.badInput ? "invalid" : input.value };
     this.notice = "";
   }
 
   private async save(): Promise<void> {
-    if (!this.hass || !this.admin || !this.project || !this.dirty || this.busy || this.conflict) return;
+    if (!this.hass || !this.admin || !this.project || !this.dirty || this.busy || this.conflict || this.invalidTemperatures) return;
     this.busy = true; this.error = ""; this.notice = "";
     try {
-      const result = await this.hass.callWS<Project>({ type: "heizlast_ha/save_planning_bindings", revision: this.project.revision, bindings: clone(this.bindings) });
-      this.project = result; this.bindings = clone(result.planning_bindings ?? {});
-      this.notice = "Sensorzuordnungen in Home Assistant gespeichert.";
+      const result = await this.hass.callWS<Project>({ type: "heizlast_ha/save_planning_bindings", revision: this.project.revision, bindings: clone(this.bindings), temperatures: this.temperatureValues });
+      this.project = result; this.resetDraft();
+      this.notice = "Sensorzuordnungen und feste Temperaturen in Home Assistant gespeichert.";
     } catch (error) {
       const code = typeof error === "object" && error && "code" in error ? String(error.code) : "";
       this.conflict = code === "conflict";
-      this.error = this.conflict ? "Das Projekt wurde zwischenzeitlich geändert. Laden Sie die aktuellen Zuordnungen und wählen Sie Ihre Änderungen erneut aus." : code === "unauthorized" ? "Zum Speichern sind Administratorrechte erforderlich." : "Sensorzuordnungen konnten nicht gespeichert werden. Bitte erneut versuchen.";
+      this.error = this.conflict ? "Das Projekt wurde zwischenzeitlich geändert. Laden Sie die aktuellen Zuordnungen und wählen Sie Ihre Änderungen erneut aus." : code === "unauthorized" ? "Zum Speichern sind Administratorrechte erforderlich." : "Sensorzuordnungen und feste Temperaturen konnten nicht gespeichert werden. Bitte erneut versuchen.";
     } finally { this.busy = false; }
   }
 
   protected render() {
     const floorZones = zonesForFloor(this.selectedFloor);
     return html`<article class="dashboard">
-      <header class="heading"><div><div class="eyebrow">Heizlast HA · Wohnhaus</div><h1>${this.config.title ?? "Heizlast im Grundriss"}</h1><p class="subtitle">${this.selectedView === "live" ? "Raum auswählen · Planungswerte prüfen · echte Sensoren zuordnen" : "Szenario einstellen · Wärmebedarf und Fußbodenheizung vergleichen"}</p></div><span class="chip">${this.selectedView === "live" ? "Planungsdaten" : "Simulation · Näherung"}</span></header>
+      <header class="heading"><div><div class="eyebrow">Heizlast HA · Wohnhaus</div><h1>${this.config.title ?? "Heizlast im Grundriss"}</h1><p class="subtitle">${this.selectedView === "live" ? "Raum auswählen · Planungswerte prüfen · Raumtemperaturen festlegen" : "Szenario einstellen · Wärmebedarf und Fußbodenheizung vergleichen"}</p></div><span class="chip">${this.selectedView === "live" ? "Planungsdaten" : "Simulation · Näherung"}</span></header>
       <div class="view-tabs" role="tablist" aria-label="Ansichten">${(["live", "simulation"] as const).map((view) => html`<button id=${`view-${view}`} role="tab" aria-selected=${this.selectedView === view} aria-controls="dashboard-view" tabindex=${this.selectedView === view ? 0 : -1} @click=${() => this.selectedView = view} @keydown=${(event: KeyboardEvent) => this.viewKeydown(event)}>${view === "live" ? "Live" : "Simulation"}</button>`)}</div>
       <div id="dashboard-view" role="tabpanel" aria-labelledby=${`view-${this.selectedView}`}>
       ${this.selectedView === "simulation" ? this.renderSimulationControls() : html`<section class="metrics" aria-label="Gebäude und Planung"><div class="metric"><div class="metric-label">Gebäudeheizlast</div><strong>${this.number(planningData.building.heat_load_w, 0)} <small>W</small></strong><p>Heizlastberechnung · S. ${planningData.sources.building.page} / ${planningData.sources.building.sheet}</p></div><div class="metric"><div class="metric-label">Summe der Raumheizlasten</div><strong>${this.number(planningData.room_heat_load_sum_w)} <small>W</small></strong><p>${planningData.zones.length} gemeinsame oder einzelne Rechenzonen</p></div><div class="metric"><div class="metric-label">Beheizte Nettofläche</div><strong>${this.number(planningData.building.heated_net_floor_area_m2)} <small>m²</small></strong><p>EG + OG · Flächen aus der Berechnung</p></div><div class="metric outdoor-temperature"><div class="metric-label">Außentemperatur</div><strong>${outdoorTemperatureLabel(this.hass)}</strong><p>Standort Home Assistant · <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a> · 30-Minuten-Abfrage</p></div><div class="metric solar-radiation"><div class="metric-label">Sonneneinstrahlung</div><strong>${solarRadiationLabel(this.hass)}</strong><p>Horizontale Globalstrahlung · Open-Meteo</p></div></section>`}
       ${this.selectedView === "live" && this.error ? html`<div class="notice error" role="alert">${this.error}${this.conflict || !this.project ? html`<br/><button ?disabled=${this.loading || this.busy} @click=${() => void this.loadProject()}>${this.conflict ? "Aktuelle Zuordnungen laden" : "Erneut laden"}</button>` : nothing}</div>` : nothing}
       ${this.selectedView === "live" && this.notice ? html`<div class="notice" role="status">${this.notice}</div>` : nothing}
-      <div class="toolbar"><nav class="floor-tabs" aria-label="Geschosse">${(["EG", "OG"] as PlanningFloor[]).map((floor) => html`<button aria-pressed=${this.selectedFloor === floor} @click=${() => this.chooseFloor(floor)}>${floorName(floor)}</button>`)}</nav><span class="floor-total">Summe Normheizlasten ${this.selectedFloor}<strong>${this.number(floorLoad(this.selectedFloor))} W</strong></span></div>
+      <div class="toolbar"><nav class="floor-tabs" aria-label="Geschosse">${(["EG", "OG"] as PlanningFloor[]).map((floor) => html`<button aria-pressed=${this.selectedFloor === floor} @click=${() => this.chooseFloor(floor)}>${floorName(floor)}</button>`)}</nav><div class="floor-totals"><span class="floor-total">Summe Normheizlasten ${this.selectedFloor}<strong>${this.number(floorLoad(this.selectedFloor))} W</strong></span>${this.selectedView === "live" ? this.renderCurrentFloorLoad() : nothing}</div></div>
       <div class="workspace"><section><div class="map-card"><div class="plan-heading"><strong>${floorName(this.selectedFloor)}</strong><span>Raumkonturen aus ${planningData.sources.plans[this.selectedFloor].document}</span></div>${this.renderPlan()}${this.selectedView === "simulation" ? html`<p class="readings-legend">Mittlerer Wärmebedarf / mögliche FBH-Leistung / mittlere Bilanz (alle W) · ≈ = Näherung · + = mittlere Reserve · − = mittleres Defizit · ? = ungültiges Szenario</p><div class="legend"><span><i class="dot covered"></i>Spitzenbedarf gedeckt</span><span><i class="dot deficit"></i>Spitzen-Defizit · ohne Speicher</span><span><i class="dot selected"></i>Ausgewählter Raum</span></div>` : html`<p class="readings-legend">Aktuelle Temperatur / berechnete Heizlast / aktuelle Heizlast · ? = Wert nicht verfügbar · ≈ = Schätzung aus Temperaturen und verfügbaren solaren Gewinnen</p><p class="readings-legend">Heizlasten gelten für die gesamte Rechenzone. Mehrere Temperatursensoren werden in den Raumdetails einzeln angezeigt; im Grundriss steht dann ?.</p><div class="legend"><span><i class="dot"></i>Raum anklicken</span><span><i class="dot selected"></i>Ausgewählte Rechenzone</span>${floorZones.some((zone) => zone.uncertain) ? html`<span><i class="dot uncertain"></i>? Zuordnung prüfen</span>` : nothing}</div>`}</div><div class="zone-heading"><span>Rechenzonen · ${floorZones.length} im ${this.selectedFloor}</span><span>${this.selectedView === "simulation" ? "Leistungsbilanz" : "Normheizlast"}</span></div><nav class="zone-list" aria-label="Rechenzonen">${floorZones.map((zone) => html`<button class="zone-button" data-zone=${zone.id} aria-label=${this.selectedView === "simulation" ? `${zone.name} auswählen · ${this.readingDescription(zone.id)}` : `${zone.name} auswählen`} aria-pressed=${zone.id === this.selectedZone} @click=${() => this.chooseZone(zone.id)}><span class="zone-number">${zone.id}</span>${zone.name}${zone.uncertain ? " ?" : ""}<span>${this.selectedView === "simulation" ? this.balanceDescription(this.simulatedZone(zone.id), true) : `${this.number(zone.load)} W`}</span></button>`)}</nav></section><aside class="details" aria-label="Details der Rechenzone">${this.selectedView === "simulation" ? this.renderSimulationDetails() : this.renderDetails()}</aside></div>
       <footer class="footer"><span>${planningData.notes.geometry}</span><span>Heizlastberechnung · ${formatNumber(Number(planningData.calculation_date.slice(8, 10)), this.hass)}.${planningData.calculation_date.slice(5, 7)}.${planningData.calculation_date.slice(0, 4)}</span></footer>
       </div>
@@ -290,7 +322,14 @@ export class HeizlastGrundrissCard extends LitElement {
     return html`<div class="detail-kicker"><span>${floorName(zone.floor)}</span><span>Rechenzone ${zone.id}</span></div><h2>${zone.name}${zone.uncertain ? " ?" : ""}</h2><div class="heat-value">${this.number(zone.load)} <small>W</small></div><p class="heat-caption">Normheizlast · aus der Berechnung</p><dl><div><dt>Beheizte Fläche · Berechnung</dt><dd>${this.number(zone.area, 2)} m²</dd></div><div><dt>Auslegung innen</dt><dd>${this.number(zone.temperature, 0)} °C</dd></div></dl><div class="loss"><span>Transmission</span><b>${this.number(zone.transmission)} W</b></div><div class="loss"><span>Lüftung</span><b>${this.number(zone.ventilation)} W</b></div>
       ${zone.uncertain ? html`<div class="note warning">? Bad-Zuordnung prüfen: Der Sanitärraum im Plan OG ist unbeschriftet. Heizlast und Fläche stammen aus der Berechnung; die Zuordnung zur Kontur ist abgeleitet und noch zu bestätigen.</div>` : shapes.length > 1 ? html`<div class="note">Gemeinsame Rechenzone für ${shapes.map((shape) => shape.short).join(" + ")}. Fläche und Heizlast gelten für alle Teilräume zusammen.</div>` : nothing}
       ${this.renderSensors()}
-      <details><summary>Quellen & Zuordnung</summary><div class="source"><p>Heizlastberechnung · S. ${zone.page} / R${zone.id}. Raumübersicht: S. 4 / Z1 und S. 5 / Z2.</p><p>${planSource.document} · S. ${planSource.page} / Blatt ${planSource.sheet}: ${shapes.map((shape) => `${shape.name}${shape.area === null ? " · Planfläche unbeschriftet" : ` · ${this.number(shape.area, 2)} m²`}`).join("; ")}.</p><p>${planningData.notes.geometry}</p><p>${planningData.notes.room_sum}</p><p>Aktuelle Heizlast ≈ Normheizlast × max(0, Raumtemperatur − Außentemperatur) / (Auslegung innen − Auslegung außen). Auslegung außen: ${this.number(planningData.building.design_outdoor_temperature_c)} °C · ${planningData.sources.climate.document}, S. ${planningData.sources.climate.page} / ${planningData.sources.climate.sheet}. Davon werden verfügbare solare Gewinne abgezogen, mindestens 0 W. Interne Gewinne, wechselnde Lüftung und Wärmespeicherung werden nicht berücksichtigt.</p><p>Solare Gewinne ≈ Summe(Fensterbauteilfläche × Fassadeneinstrahlung) × ${this.number(planningData.solar_assumptions.glazing_fraction,2)} Rahmenfaktor × ${this.number(planningData.solar_assumptions.g_value,2)} g-Wert × ${this.number(planningData.solar_assumptions.shading_factor,2)} Verschattung × ${this.number(planningData.solar_assumptions.sun_protection_factor,2)} Sonnenschutz × ${this.number(planningData.solar_assumptions.incidence_factor,2)} Einfallsfaktor. ${planningData.sources.solar.document}, S. ${planningData.sources.solar.pages.join("–")} / Abschnitt ${planningData.sources.solar.section}. Diese Planungsfaktoren berücksichtigen keinen aktuellen Rollladenstatus.</p><p>${planningData.notes.solar}</p><p>Auslegungstemperaturen sind Planungswerte. Aktuelle Raumtemperaturen stammen ausschließlich aus zugeordneten Home-Assistant-Sensoren.</p></div></details>`;
+      <details><summary>Quellen & Zuordnung</summary><div class="source"><p>Heizlastberechnung · S. ${zone.page} / R${zone.id}. Raumübersicht: S. 4 / Z1 und S. 5 / Z2.</p><p>${planSource.document} · S. ${planSource.page} / Blatt ${planSource.sheet}: ${shapes.map((shape) => `${shape.name}${shape.area === null ? " · Planfläche unbeschriftet" : ` · ${this.number(shape.area, 2)} m²`}`).join("; ")}.</p><p>${planningData.notes.geometry}</p><p>${planningData.notes.room_sum}</p><p>Aktuelle Heizlast ≈ Normheizlast × max(0, Raumtemperatur − Außentemperatur) / (Auslegung innen − Auslegung außen). Auslegung außen: ${this.number(planningData.building.design_outdoor_temperature_c)} °C · ${planningData.sources.climate.document}, S. ${planningData.sources.climate.page} / ${planningData.sources.climate.sheet}. Davon werden verfügbare solare Gewinne abgezogen, mindestens 0 W. Interne Gewinne, wechselnde Lüftung und Wärmespeicherung werden nicht berücksichtigt.</p><p>Solare Gewinne ≈ Summe(Fensterbauteilfläche × Fassadeneinstrahlung) × ${this.number(planningData.solar_assumptions.glazing_fraction,2)} Rahmenfaktor × ${this.number(planningData.solar_assumptions.g_value,2)} g-Wert × ${this.number(planningData.solar_assumptions.shading_factor,2)} Verschattung × ${this.number(planningData.solar_assumptions.sun_protection_factor,2)} Sonnenschutz × ${this.number(planningData.solar_assumptions.incidence_factor,2)} Einfallsfaktor. ${planningData.sources.solar.document}, S. ${planningData.sources.solar.pages.join("–")} / Abschnitt ${planningData.sources.solar.section}. Diese Planungsfaktoren berücksichtigen keinen aktuellen Rollladenstatus.</p><p>${planningData.notes.solar}</p><p>Auslegungstemperaturen sind Planungswerte. Raumtemperaturen stammen aus zugeordneten Home-Assistant-Sensoren oder ausdrücklich eingegebenen festen Werten. Feste Werte sind keine Messwerte.</p></div></details>`;
+  }
+
+  private renderFixedTemperature() {
+    const key = String(this.zone.id), selected = bindingFor(this.bindings, key).length > 0;
+    const value = selected ? "" : this.temperatures[key] ?? "";
+    const invalid = value !== "" && (!Number.isFinite(this.simulationNumber(value)) || this.simulationNumber(value) < -273.15);
+    return html`<div class="fixed-temperature"><label for="fixed-temperature">Feste Raumtemperatur (°C)</label><input id="fixed-temperature" type="number" min="-273.15" step="any" placeholder="Nicht vorhanden" .value=${value} aria-invalid=${invalid} aria-describedby="fixed-temperature-hint" ?disabled=${selected || !this.admin || !this.project || this.loading || this.busy || this.conflict} @input=${(event: Event) => this.setTemperature(event.target as HTMLInputElement)}/><p id="fixed-temperature-hint" class="hint">${invalid ? "Eine gültige Temperatur ab −273,15 °C eingeben." : selected ? "Ein Temperatursensor ist zugeordnet. Der feste Wert wurde gelöscht; es gelten ausschließlich Sensorwerte." : "Optionaler fester Wert für die Heizlastschätzung, kein Messwert. Eine Sensorzuordnung löscht diesen Wert."}</p></div>`;
   }
 
   private renderSensors() {
@@ -298,8 +337,9 @@ export class HeizlastGrundrissCard extends LitElement {
     const sensors = this.hass ? temperatureSensors(this.hass) : [];
     const filter = this.sensorSearch.toLocaleLowerCase();
     const candidates = [...sensors.filter((state) => selected.includes(state.entity_id) || `${state.entity_id} ${entityName(state, this.hass)}`.toLocaleLowerCase().includes(filter)).map((state) => state.entity_id), ...selected.filter((id) => !sensors.some((sensor) => sensor.entity_id === id))];
-    return html`<section class="sensors"><h3>Aktuelle Raumtemperatur</h3>${this.loading ? html`<p class="hint" role="status">Sensorzuordnungen werden geladen …</p>` : selected.length ? selected.map((id) => html`<div class="sensor-reading"><span class="sensor-name">${entityName(this.hass?.states[id], this.hass) ?? id}<small class="sensor-id">${id}${!this.hass?.states[id] ? " · entfernt" : this.hass.states[id].attributes.device_class !== "temperature" ? " · Geräteklasse geändert" : ""}</small></span><strong>${measuredTemperatureLabel(this.hass?.states[id], this.hass)}</strong></div>`) : html`<p class="hint">Kein Sensor zugeordnet · ?</p>`}<p class="hint solar-gains">Solare Gewinne: ${this.readings(this.zone.id).solar} · Näherung nach EnEV-Annahmen.</p><p class="hint current-heat-load">Aktuelle Heizlast: ${this.readings(this.zone.id).current} · ${this.readings(this.zone.id).solarIncluded ? "Näherung mit solaren Gewinnen nach EnEV-Annahmen." : "Temperaturbasierte Näherung ohne verfügbare Solarkorrektur."}</p>
-      ${this.admin && this.project ? html`<details><summary>Temperatursensoren zuordnen</summary><input class="sensor-filter" aria-label="Temperatursensor suchen" type="search" placeholder="Sensor suchen" .value=${this.sensorSearch} @input=${(event: Event) => this.sensorSearch = (event.target as HTMLInputElement).value}/><div class="sensor-select">${candidates.length ? candidates.map((id) => html`<label><input type="checkbox" .checked=${selected.includes(id)} ?disabled=${this.busy || this.conflict} @change=${(event: Event) => this.toggleSensor(id, (event.target as HTMLInputElement).checked)}/><span>${entityName(this.hass?.states[id], this.hass) ?? id}<small class="sensor-id">${id}${!this.hass?.states[id] ? " · entfernt" : this.hass.states[id].attributes.device_class !== "temperature" ? " · Geräteklasse geändert" : ""}</small></span></label>`) : html`<p class="hint">Keine vorhandenen Temperatursensoren gefunden.</p>`}</div><p class="hint">Zuordnung gilt für die gesamte Rechenzone. Mehrere Sensoren werden einzeln angezeigt.</p></details>${this.dirty ? html`<div class="actions"><button class="primary" ?disabled=${this.busy || this.conflict} @click=${() => void this.save()}>${this.busy ? "Wird gespeichert …" : "Zuordnungen speichern"}</button><button ?disabled=${this.busy} @click=${() => { this.bindings = clone(this.project?.planning_bindings ?? {}); this.notice = ""; }}>Änderungen verwerfen</button></div><p class="hint">Ungespeicherte Sensorzuordnungen</p>` : nothing}` : !this.admin ? html`<p class="hint">Ansicht mit Leserechten. Administratoren können Sensoren zuordnen.</p>` : nothing}</section>`;
+    const values = this.readings(this.zone.id);
+    return html`<section class="sensors"><h3>Aktuelle Raumtemperatur</h3>${this.loading ? html`<p class="hint" role="status">Sensorzuordnungen werden geladen …</p>` : selected.length ? selected.map((id) => html`<div class="sensor-reading"><span class="sensor-name">${entityName(this.hass?.states[id], this.hass) ?? id}<small class="sensor-id">${id}${!this.hass?.states[id] ? " · entfernt" : this.hass.states[id].attributes.device_class !== "temperature" ? " · Geräteklasse geändert" : ""}</small></span><strong>${measuredTemperatureLabel(this.hass?.states[id], this.hass)}</strong></div>`) : html`<p class="hint">Kein Sensor zugeordnet · ${values.temperature}${values.temperature !== "?" ? " · fest eingegeben" : ""}</p>`}<p class="hint solar-gains">Solare Gewinne: ${this.readings(this.zone.id).solar} · Näherung nach EnEV-Annahmen.</p><p class="hint current-heat-load">Aktuelle Heizlast: ${this.readings(this.zone.id).current} · ${this.readings(this.zone.id).solarIncluded ? "Näherung mit solaren Gewinnen nach EnEV-Annahmen." : "Temperaturbasierte Näherung ohne verfügbare Solarkorrektur."}</p>
+      ${this.admin && this.project ? html`<details><summary>Temperatursensoren zuordnen</summary><input class="sensor-filter" aria-label="Temperatursensor suchen" type="search" placeholder="Sensor suchen" .value=${this.sensorSearch} @input=${(event: Event) => this.sensorSearch = (event.target as HTMLInputElement).value}/><div class="sensor-select">${candidates.length ? candidates.map((id) => html`<label><input type="checkbox" .checked=${selected.includes(id)} ?disabled=${this.busy || this.conflict} @change=${(event: Event) => this.toggleSensor(id, (event.target as HTMLInputElement).checked)}/><span>${entityName(this.hass?.states[id], this.hass) ?? id}<small class="sensor-id">${id}${!this.hass?.states[id] ? " · entfernt" : this.hass.states[id].attributes.device_class !== "temperature" ? " · Geräteklasse geändert" : ""}</small></span></label>`) : html`<p class="hint">Keine vorhandenen Temperatursensoren gefunden.</p>`}</div><p class="hint">Zuordnung gilt für die gesamte Rechenzone. Mehrere Sensoren werden einzeln angezeigt.</p></details>${this.renderFixedTemperature()}${this.dirty ? html`<div class="actions"><button class="primary" ?disabled=${this.busy || this.conflict || this.invalidTemperatures} @click=${() => void this.save()}>${this.busy ? "Wird gespeichert …" : "Änderungen speichern"}</button><button ?disabled=${this.busy} @click=${() => { this.resetDraft(); this.notice = ""; }}>Änderungen verwerfen</button></div><p class="hint">Ungespeicherte Sensorzuordnungen oder feste Temperaturen</p>` : nothing}` : !this.admin ? html`${this.renderFixedTemperature()}<p class="hint">Ansicht mit Leserechten. Administratoren können Sensoren zuordnen und feste Temperaturen eingeben.</p>` : nothing}</section>`;
   }
 }
 

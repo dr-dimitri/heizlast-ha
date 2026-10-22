@@ -8,13 +8,15 @@ Räume lassen sich anklicken; rechts stehen Fläche, Auslegungstemperatur,
 Wärmeverluste, Quellenbelege und vorhandene Temperatursensoren.
 Spitzboden und Nebengebäude gehören nicht zur Darstellung.
 
-Die Integration speichert die Sensorzuordnungen in Home Assistant.
-Raumtemperaturen kommen direkt von den vorhandenen Sensoren. Dokumentierte
-Normheizlasten sind Planungsdaten, keine aktuellen Messwerte. Ohne Sensorzuordnung
-werden keine Raumtemperaturen vorgetäuscht. Jedes Raumlabel zeigt
+Die Integration speichert Sensorzuordnungen und feste Raumtemperaturen in
+Home Assistant. Raumtemperaturen kommen von zugeordneten Sensoren oder aus
+ausdrücklich eingegebenen festen Werten. Dokumentierte Normheizlasten sind
+Planungsdaten, keine aktuellen Messwerte. Ohne Sensor oder feste Eingabe
+bleibt die Raumtemperatur unbekannt. Jedes Raumlabel zeigt
 **aktuelle Temperatur / berechnete Heizlast / aktuelle Heizlast**. Die aktuelle
-Heizlast wird aus einem eindeutig zugeordneten Raumfühler, der Außentemperatur
-und den dokumentierten Auslegungswerten näherungsweise berechnet. Wenn aktuelle
+Heizlast wird aus einem eindeutigen Raumfühlerwert oder einer festen Eingabe,
+der Außentemperatur und den dokumentierten Auslegungswerten näherungsweise
+berechnet. Wenn aktuelle
 Strahlungsdaten vorliegen, werden solare Gewinne nach den belegten
 EnEV-Annahmen abgezogen. Das Ergebnis ist mit **≈** gekennzeichnet. Fehlende oder mehrdeutige Temperaturen ergeben **?**.
 Eine Heizungssteuerung ist nicht enthalten.
@@ -159,23 +161,38 @@ Wertezeile darunter ist halb so groß; Texte werden nicht raumweise gestreckt.
 - Die belegte Norm-Außentemperatur beträgt **−12,2 °C**
   (**Heizlastberechnung**, Seite 2 / G1). Auslegungstemperaturen innen von
   22 °C beziehungsweise 24 °C sind Berechnungsannahmen. Aktuelle
-  Raumtemperaturen stammen ausschließlich aus
-  tatsächlich zugeordneten Home-Assistant-Temperatursensoren.
+  Raumtemperaturen stammen aus tatsächlich zugeordneten Home-Assistant-
+  Temperatursensoren oder ausdrücklich eingegebenen festen Werten. Feste Werte
+  sind Benutzereingaben, keine Messwerte.
 
 Administratoren können in der Raumauswahl vorhandene Temperatursensoren
-zuordnen und die Auswahl ausdrücklich speichern. Die Zuordnung gilt für die
+zuordnen oder direkt darunter eine **feste Raumtemperatur in °C** eingeben
+und die Änderungen ausdrücklich speichern. Ohne Sensor verwendet die aktuelle
+Heizlastschätzung diesen festen Wert. Eine leere Eingabe bedeutet „nicht
+vorhanden“. Sobald ein Sensor zugeordnet wird, wird der feste Wert gelöscht
+und die Eingabe deaktiviert. Sensorwerte haben Vorrang, auch wenn der Sensor
+nicht verfügbar ist; nach Entfernen der Zuordnung bleibt die feste Temperatur
+leer, bis sie erneut eingegeben wird. Die Zuordnung gilt für die
 gesamte Rechenzone; mehrere Sensorwerte erscheinen einzeln. Entfernte oder
 nicht verfügbare Sensoren bleiben erkennbar. Normale Benutzer können die
-gespeicherten Zuordnungen und Werte ansehen. Die Zuordnungen werden zentral in
-Home Assistant gespeichert und nutzen eine gemeinsame Projekt-Revision, um
+gespeicherten Zuordnungen und Werte ansehen. Zuordnungen und feste Temperaturen
+werden zentral in Home Assistant gespeichert und nutzen eine gemeinsame Projekt-Revision, um
 gleichzeitige Änderungen nicht zu überschreiben.
 
 Das kompakte Raumlabel zeigt die Temperatur eines eindeutig zugeordneten
-verfügbaren Sensors. Bei mehreren Sensoren steht dort **?**; die Einzelwerte
+verfügbaren Sensors oder ohne Sensor den festen Wert. Die Raumdetails
+kennzeichnen feste Werte ausdrücklich als Eingaben. Bei mehreren Sensoren steht
+dort **?**; die Einzelwerte
 bleiben in den Raumdetails sichtbar. Es werden keine Mittelwerte erzeugt.
 Die Außentemperatur erscheint zusätzlich im Dashboard und als Home-Assistant-
 Temperatursensor. Nach Abfragefehlern bleibt der letzte Wert verfügbar und
 wird auch für die Temperaturabschätzung verwendet.
+
+Neben der Normheizlastsumme zeigt jedes Geschoss die **Summe der aktuellen
+Heizlasten** seiner Rechenzonen. Die ungerundeten Raumwerte werden einschließlich
+der jeweils verfügbaren Solarkorrektur addiert und erst als Summe gerundet.
+Fehlt eine berechenbare Raumheizlast, erscheint **?** mit der Anzahl berechenbarer
+Rechenzonen; fehlende Werte werden nicht als 0 W gewertet.
 
 Die temperaturbasierte Schätzung verwendet
 `Normheizlast × max(0, Raumtemperatur − Außentemperatur) / (Auslegung innen − Auslegung außen)`.
@@ -423,11 +440,15 @@ Der feste Grundriss liegt mit seinen belegten Heizlasten und neutralen
 Quellenbelegen in `custom_components/heizlast_ha/planning-data.json`.
 Die Integration liefert keinen Zeicheneditor, JSON-Import, LLM-Prompt oder
 Speicherendpunkt für eigene Raumgeometrie aus. Über die authentifizierte API
-können ausschließlich Sensorzuordnungen der elf festen Rechenzonen verändert
-werden. Normale Benutzer erhalten nur Lesezugriff.
+können ausschließlich Sensorzuordnungen und feste Raumtemperaturen der elf
+festen Rechenzonen verändert werden. Die API liefert `revision`,
+`planning_bindings` und `planning_temperatures`; der bestehende administrative
+Speicherbefehl akzeptiert zusätzlich das optionale Feld `temperatures`.
+Diese Werte sind Benutzerkonfiguration und verändern keine Planungsdaten.
+Normale Benutzer erhalten nur Lesezugriff.
 
-Die Sensorzuordnungen werden über Home Assistants Storage-Helfer im
-Konfigurationsverzeichnis unter `.storage` gespeichert. Das
+Sensorzuordnungen und feste Raumtemperaturen werden über Home Assistants
+Storage-Helfer im Konfigurationsverzeichnis unter `.storage` gespeichert. Das
 Konfigurationsverzeichnis einschließlich `.storage` sichern. Aus Versionen bis
 0.9.0 vorhandene eigene Pläne werden beim Update intern unverändert aufbewahrt,
 aber nicht mehr an das Dashboard geliefert. Die Planungszuordnungen des festen

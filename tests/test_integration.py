@@ -62,7 +62,11 @@ async def test_config_flow_is_single_instance(hass):
     configured = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     assert configured["type"] == "create_entry"
     await hass.async_block_till_done()
-    assert get_project(hass).snapshot() == {"revision": 0, "planning_bindings": {}}
+    assert get_project(hass).snapshot() == {
+        "revision": 0,
+        "planning_bindings": {},
+        "planning_temperatures": {},
+    }
     duplicate = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
@@ -124,7 +128,11 @@ async def test_removed_geometry_commands_are_not_registered(
         ws, 1, command, revision=0, plan=None, bindings={}, name="plan.png"
     )
     assert response["error"]["code"] == "unknown_command"
-    assert get_project(hass).snapshot() == {"revision": 0, "planning_bindings": {}}
+    assert get_project(hass).snapshot() == {
+        "revision": 0,
+        "planning_bindings": {},
+        "planning_temperatures": {},
+    }
     assert not Path(hass.config.path(".storage", STORAGE_KEY)).exists()
     assert not hasattr(get_project(hass), "async_save")
 
@@ -163,4 +171,8 @@ async def test_unloaded_snapshot_reports_not_loaded_and_can_reload(
     assert unloaded["error"]["code"] == "not_loaded"
     assert await hass.config_entries.async_setup(entry.entry_id)
     loaded = await send(ws, 2, "get_project")
-    assert loaded["result"] == {"revision": 0, "planning_bindings": {}}
+    assert loaded["result"] == {
+        "revision": 0,
+        "planning_bindings": {},
+        "planning_temperatures": {},
+    }

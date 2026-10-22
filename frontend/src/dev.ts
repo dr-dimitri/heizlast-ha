@@ -6,7 +6,7 @@ import { clone, type HomeAssistant, type Project } from "./types";
 if (!import.meta.env.DEV) throw new Error("Development preview must not run in production.");
 const storageKey = "heizlast-ha-local-preview-v4";
 const params = new URLSearchParams(location.search);
-const newProject = (): Project => ({ revision: 0, planning_bindings: {} });
+const newProject = (): Project => ({ revision: 0, planning_bindings: {}, planning_temperatures: {} });
 let project: Project;
 try { project = params.has("reset") ? newProject() : JSON.parse(localStorage.getItem(storageKey) ?? "null") ?? newProject(); }
 catch { project = newProject(); }
@@ -22,7 +22,7 @@ let hass: HomeAssistant = {
     if (message.type === "heizlast_ha/save_planning_bindings") {
       const bindings = clone(message.bindings) as Record<string, string[]>;
       if (Object.values(bindings).some((ids) => ids.length)) throw { code: "invalid_bindings" };
-      project = { ...project, revision: project.revision + 1, planning_bindings: bindings };
+      project = { ...project, revision: project.revision + 1, planning_bindings: bindings, planning_temperatures: clone(message.temperatures) as Record<string, number> };
     } else throw new Error("Unbekannte Vorschauanfrage.");
     persist(); return clone(project) as T;
   },
