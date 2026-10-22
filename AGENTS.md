@@ -353,8 +353,8 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   Vitest prüft den festen Grundriss, Sensorzuordnung und
   Kartennutzung; Vite bündelt die Karte als eigenständiges JavaScript-Modul
   `frontend/dist/heizlast-ha-card.js`. Abhängigkeiten und Lockfile liegen im
-  Frontendordner; der lokale Entwicklungsadapter wird nicht in die Karte
-  gebündelt.
+  Frontendordner; Vite ist auf die korrigierte Patchversion 8.3.5 festgelegt.
+  Der lokale Entwicklungsadapter wird nicht in die Karte gebündelt.
 
 ### Fester Grundriss und Quelldaten
 
