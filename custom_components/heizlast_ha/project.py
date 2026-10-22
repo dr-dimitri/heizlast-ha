@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.storage import Store
 
 from .const import STORAGE_KEY, STORAGE_VERSION
@@ -14,6 +15,7 @@ from .planning import (
     JsonObject,
     ProjectError,
     is_temperature_state,
+    validate_energy_settings,
     validate_gas_price,
     validate_planning_bindings,
     validate_planning_temperatures,
@@ -93,6 +95,10 @@ class Project:
                 "Gespeicherte Temperatur und Sensorzuordnung kollidieren."
             )
         validate_gas_price(stored.get("gas_price_ct_per_kwh"))
+        if "energy_settings" in stored:
+            validate_energy_settings(
+                stored["energy_settings"], stored["energy_settings"], lambda *_: False
+            )
         self.data = deepcopy(stored)
 
     def snapshot(self) -> JsonObject:
@@ -107,6 +113,8 @@ class Project:
         }
         if "gas_price_ct_per_kwh" in self.data:
             result["gas_price_ct_per_kwh"] = self.data["gas_price_ct_per_kwh"]
+        if "energy_settings" in self.data:
+            result["energy_settings"] = deepcopy(self.data["energy_settings"])
         return result
 
     def _ensure_active(self) -> None:
@@ -141,6 +149,47 @@ class Project:
                 candidate.pop("gas_price_ct_per_kwh", None)
             else:
                 candidate["gas_price_ct_per_kwh"] = checked
+            await self._async_persist(candidate)
+            return self.snapshot()
+
+    def _is_energy_sensor(self, role: str, entity_id: str) -> bool:
+        """Resolve source identity through the registry, allowing renamed entities."""
+        entity = er.async_get(self.hass).async_get(entity_id)
+        if (
+            entity is None
+            or not entity.entity_id.startswith("sensor.")
+            or entity.config_entry_id is None
+            or entity.disabled_by is not None
+        ):
+            return False
+        if role == "pv_forecast_entity_id":
+            return entity.platform == "pv_forecast" and entity.unique_id in {
+                f"{entity.config_entry_id}_total_today",
+                f"{entity.config_entry_id}_total_tomorrow",
+                f"{entity.config_entry_id}_total_remaining_today",
+            }
+        suffix = (
+            "economics_current_import_price"
+            if role == "electricity_price_entity_id"
+            else "economics_feed_in_price"
+        )
+        return (
+            entity.platform == "sax_power"
+            and entity.unique_id == f"{entity.config_entry_id}_{suffix}"
+        )
+
+    async def async_save_energy_settings(
+        self, revision: int, settings: Any
+    ) -> JsonObject:
+        """Persist generator/source selections while retaining all other settings."""
+        async with self.lock:
+            self._check_revision(revision)
+            checked = validate_energy_settings(
+                settings, self.data.get("energy_settings", {}), self._is_energy_sensor
+            )
+            candidate = deepcopy(self.data)
+            candidate["revision"] += 1
+            candidate["energy_settings"] = checked
             await self._async_persist(candidate)
             return self.snapshot()
 

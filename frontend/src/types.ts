@@ -1,14 +1,22 @@
 export type Point = [number, number];
+export interface EnergySettings {
+  heat_generator: "gas" | "bosch_aw5800_5";
+  pv_forecast_entity_id: string | null;
+  electricity_price_entity_id: string | null;
+  feed_in_tariff_entity_id: string | null;
+}
 export interface Project {
   revision: number;
   planning_bindings: Record<string, string[]>;
   planning_temperatures?: Record<string, number>;
   gas_price_ct_per_kwh?: number;
+  energy_settings?: EnergySettings;
 }
 export interface HassState {
   entity_id: string;
   state: string;
   attributes: {
+    [key: string]: unknown;
     friendly_name?: string;
     device_class?: string;
     unit_of_measurement?: string;

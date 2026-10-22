@@ -6,6 +6,7 @@ import { solarGainsW } from "./heat-load";
 import { heatLossW } from "./thermal-model";
 import { simulateHeatingDay, estimateGasUse, CONDENSING_BOILER_EFFICIENCY, MAX_REQUIRED_SUPPLY_C, type HeatingDay, type HeatingHour, type WeatherForecast, type SimulationResult, type ZoneSimulationResult } from "./simulation-core";
 import { renderHeatingChart } from "./heating-chart";
+import "./energy-dashboard";
 
 export class HeizlastGrundrissCard extends LitElement {
   static styles = planningStyles;
@@ -195,6 +196,7 @@ export class HeizlastGrundrissCard extends LitElement {
         ${this.admin ? html`<div class="actions"><button ?disabled=${!this.project || this.loading || this.busy || this.conflict || !this.gasPriceDirty || this.invalidGasPrice} @click=${() => void this.saveGasPrice()}>Gaspreis speichern</button><button ?disabled=${this.busy || !this.gasPriceDirty} @click=${() => this.gasPrice = String(this.project?.gas_price_ct_per_kwh ?? "")}>Gaspreis verwerfen</button></div>` : nothing}
         <p class="hint">Annahme moderne Brennwerttherme: ${CONDENSING_BOILER_EFFICIENCY * 100} % Nutzungsgrad bezogen auf den Brennwert. Gasbedarf = Wärmebedarf ÷ ${this.number(CONDENSING_BOILER_EFFICIENCY, 2)}; Tageskosten in Euro = Gasbedarf × Arbeitspreis ÷ 100. Nur Raumheizung, ohne Warmwasser, Grundpreis und Hilfsstrom. Zusätzliche Verteil- und Speicherverluste sind nicht modelliert. Bei unvollständigem Tagesbedarf bleiben Verbrauch und Kosten ?. Auch bei nicht erreichbarem Vorlauf ist dies nur der rechnerische Brennstoffbedarf zum Wärmebedarf.</p>
       </div>
+      <heizlast-energy-comparison .hass=${this.hass} .project=${this.project} .day=${day} .selectedHour=${this.selectedHour} .timezone=${this.forecast?.timezone ?? "UTC"} .gasPriceCtPerKWh=${this.gasPriceValue} @energy-project-saved=${(event: CustomEvent<Project>) => this.project = event.detail}></heizlast-energy-comparison>
       <details><summary>Gemeinsame Modellgrundlage</summary><p class="hint">Planungsdaten, bestätigte Heizkreise und Solarbilanz entsprechen Live. Raumtemperaturen aus Sensoren oder festen Eingaben werden für den ganzen Tag konstant gehalten. FBH-Annahmen bleiben fest: 80 % aktive Fläche, 1,5 l/min je offenem Kreis, 6 m zusätzliche Anbindung, 0,15 m Heizstreifenbreite und 29 °C maximale Bodenoberfläche. Referenzkennlinie aus der bestehenden Kalibrierannahme bei 22 °C innen und −9 °C außen mit dem belegten Vorlauf/Rücklauf. Unbekannte Anlagenwerte bleiben Annahmen, keine Messungen.</p></details>
       <p class="hint">Der nötige gemeinsame Vorlauf richtet sich nach dem anspruchsvollsten Raum. Alle Kreise gelten als offen; Thermostatregelung und Wärmespeicherung sind nicht modelliert. Wetterwerte sind Vorhersagedaten. Die Kurve ist eine stationäre Näherung, keine Heizungssteuerung oder Raumtemperaturprognose.</p>
     </section>${this.renderSimulationMetrics()}`;

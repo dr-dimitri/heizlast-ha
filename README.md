@@ -1,7 +1,7 @@
 # heizlast-ha
 
 Home-Assistant-Integration mit einer interaktiven digitalen Grundrisskarte.
-Version **0.19.0** öffnet den fest implementierten Grundriss direkt in der
+Version **0.20.0** öffnet den fest implementierten Grundriss direkt in der
 HA-Seitenleiste. Erdgeschoss und Obergeschoss zeigen die aus den Werkplänen
 übernommenen Raumkonturen und die belegten Normheizlasten von elf Rechenzonen.
 Räume lassen sich anklicken; rechts stehen Fläche, Auslegungstemperatur,
@@ -25,6 +25,8 @@ Im Tab **Simulation** werden heute und die folgenden sechs Tage mit
 stündlichen Wetterdaten berechnet. Ein Diagramm zeigt pro Stunde die
 Heizlast und den nötigen gemeinsamen Vorlauf. Manuelle FBH- und Wetterfelder
 entfallen; Raumtemperaturen, Grundriss und Planungsdaten entsprechen Live.
+Zusätzlich lässt sich eine Bosch-Wärmepumpe auswählen und ihr Strombedarf mit
+Gas, Netzstromtarif und zeitgleicher PV-Erzeugung vergleichen.
 
 Die Außentemperatur wird über Open-Meteo mit dem in Home Assistant eingestellten
 Standort abgefragt: beim Laden der Integration und anschließend alle **30 Minuten**.
@@ -282,6 +284,82 @@ ein gültiger Preis; eine leere Eingabe löscht ihn. Punkt oder Komma als
 Dezimaltrennzeichen sind möglich. Speichern, Verwerfen, Konflikte und
 Speicherfehler erhalten die Raumkonfiguration und den Planungsdatensatz.
 
+### Wärmeerzeuger, PV und Stromkosten
+
+Unter **Wärmeerzeuger und Kostenvergleich** kann ein Administrator zwischen
+Gas-Brennwerttherme und **Bosch Compress 5800i AW 5 OR-S** wählen. Dies ist das
+als „AW5800 mit 5 kW“ gewünschte erste Modell; 5 kW bezeichnet die Modellklasse,
+keine konstante Heizleistung. Es gibt keine weiteren Wärmepumpen oder
+manuell einstellbaren Leistungs- und COP-Werte. Gas bleibt die Voreinstellung.
+Bei ausgewählter Wärmepumpe stehen drei Tageswerte nebeneinander: Gaskosten,
+Wärmepumpenkosten bei reinem Netzbezug und Wärmepumpenkosten mit PV.
+Die gewählte Stunde zeigt zusätzlich COP, Strombedarf, verfügbare Heizleistung
+und gegebenenfalls den ungedeckten Bedarf. Der feste Grundriss bleibt erhalten.
+
+Die Herstellerpunkte kommen aus der
+[Bosch-Planungsunterlage 6721891866, Ausgabe 2025/04, S. 81, Tabelle 29](https://bosch-de-de.boschhc-documents.com/download/pdf/file/6721891866).
+Für W35 werden die zusammengehörigen maximalen Heizleistungen und COP-Werte
+bei −7, +2 und +7 °C außen linear interpoliert. Nominale Teillast-COPs und
+saisonale SCOP-Werte werden nicht mit maximalen Heizleistungen kombiniert.
+Die Vorlaufkorrektur verwendet die linearen Verhältnisse zwischen A7/W35 und
+A7/W55; ihre Übertragung auf andere Außentemperaturen und Extrapolation auf
+20–60 °C Vorlauf sind **Modellannahmen**, kein vollständiges Bosch-Kennfeld.
+Unter 35 °C wird die verfügbare Leistung nicht erhöht. Oberhalb +7 °C außen
+werden die +7-°C-Werte vereinfachend konstant gehalten, höchstens bis +45 °C.
+Unter −7 °C bleibt der Bedarf mangels tabellarischer Punkte unbekannt.
+Die Heizbetriebsgrenze von 60 °C stammt aus derselben Unterlage, S. 4.
+
+Für jede gedeckte Stunde gilt `Strombedarf = Wärmebedarf / COP / 1000` in kWh,
+wenn der Wärmebedarf in W vorliegt. Der erforderliche Vorlauf stammt aus dem
+bestehenden FBH-Modell. Ist die Bosch-Heizleistung unzureichend, der FBH-Vorlauf
+nicht erreichbar oder die Kennfeldnäherung nicht anwendbar, bleiben Tagesstrom
+und Stromkosten unbekannt. Es wird kein Heizstab oder Gas-Backup ergänzt.
+Bei Nullbedarf entstehen null kWh. Teillastvorteile, Takten, Abtauung und
+zusätzliche Hilfsenergie erhalten kein separates Modell. Die Ergebnisse
+sind stationäre Schätzungen für Raumheizung, keine Zählerprognose.
+
+Drei Sensoren lassen sich zuordnen:
+
+- **PV-Vorhersage · pv-forecast-ha:** ein Gesamt-Tagesprognosesensor der
+  Integration `pv_forecast`. Die Auswahl verwendet deren Registry-Identität,
+  sodass umbenannte Entitäten funktionieren. Die Tageszahl selbst wird nicht
+  auf Stunden verteilt. `heizlast_ha/get_energy_forecast` löst den zugehörigen
+  Konfigurationseintrag auf und liest ausschließlich den bestehenden lokalen
+  Cache über `pv_forecast.get_forecast` mit `window` und 60-Minuten-Intervallen.
+  Ohne diese Integration oder vollständige, weniger als eine Stunde alte
+  Prognose bleibt die PV-Rechnung unbekannt. Kein zusätzlicher Wetterabruf.
+- **Strompreis und Tarifzeiten · sax-ha:** der SAX-Sensor
+  `economics_current_import_price`. Sensorzustände sind ct/kWh, die Attribute
+  `base_price_eur_kwh` und `windows[].price_eur_kwh` dagegen EUR/kWh.
+  Feste Tarife und tägliche Tarifzeiten einschließlich Mitternacht werden in
+  der HA-Zeitzone auf absolute Zeitintervalle abgebildet. Dynamische Preise
+  liest die Karte über den vorhandenen, rein lesenden Cache-Endpunkt
+  `sax_power/dashboard/tariff/series` für heute und morgen. Bei späteren Tagen
+  oder Preislücken wird kein aktueller Preis als Zukunftspreis fortgeschrieben.
+  Negative Strompreise sind zulässig.
+- **Einspeisevergütung · sax-ha:** der SAX-Sensor `economics_feed_in_price`.
+  Der gültige gespeicherte Wert wird für die PV-Kosten des Tages verwendet.
+
+Der Kostenvergleich rechnet mit zeitgleichen Intervallen: Wärmepumpenstrom
+wird maximal bis zur prognostizierten PV-Erzeugung aus PV gedeckt, der Rest
+kommt aus dem Netz. Netzstrom kostet den jeweils geltenden Tarif; PV-Strom
+kostet die **entgangene Einspeisevergütung**. Summe beider Werte ergibt die
+Wärmepumpenkosten mit PV. Andere Haushaltsverbraucher und Batteriespeicher
+fehlen: Dies ist eine Obergrenze der PV-Nutzung für die Wärmepumpe, keine
+Vorhersage des tatsächlichen Überschusses und keine Tarifoptimierung.
+Innerhalb eines Intervalls gilt gleichmäßige Leistung als Annahme. Tarifwechsel
+teilen Intervalle anteilig; PV-Energie wird nicht in andere Stunden verschoben.
+Zeitumstellungen und gebrochene UTC-Offsets behalten ihre absoluten Zeitgrenzen.
+Lücken und überlappende Daten bleiben unbekannt. Die Netzreferenz funktioniert
+auch ohne PV-Quelle; bei null PV-Bedarf ist keine Einspeisevergütung nötig.
+Grundpreise und Warmwasser fehlen in allen Vergleichswerten.
+
+Die Quellen werden über `heizlast_ha/get_energy_sources` anhand ihrer
+Integrations- und Sensoridentitäten angeboten, nicht über Namensvermutungen.
+Die Karte liest die Cache-Daten während der Ansicht jede Minute. Leserechte
+reichen für den Vergleich. Nur Administratoren speichern Auswahl und Quellen;
+Entwürfe, Verwerfen, Konflikte und Speicherfehler werden ausdrücklich behandelt.
+
 Die stündliche Außentemperatur und Sonneneinstrahlung stammen aus demselben
 **Open-Meteo-Abruf** wie die Live-Wetterwerte. Es gibt keine manuellen Wetter-
 oder FBH-Einstellungen und keinen synthetischen Monats-Referenztag mehr in der
@@ -406,7 +484,7 @@ Quellenbelegen in `custom_components/heizlast_ha/planning-data.json`.
 Die Integration liefert keinen Zeicheneditor, JSON-Import, LLM-Prompt oder
 Speicherendpunkt für eigene Raumgeometrie aus. Über die authentifizierte API
 können ausschließlich Sensorzuordnungen und feste Raumtemperaturen der elf
-festen Rechenzonen sowie der Gaspreis verändert werden. Die API liefert `revision`,
+festen Rechenzonen sowie Gaspreis und Energieeinstellungen verändert werden. Die API liefert `revision`,
 `planning_bindings` und `planning_temperatures`; der bestehende administrative
 Speicherbefehl akzeptiert zusätzlich das optionale Feld `temperatures`.
 `get_project` liefert zusätzlich den optionalen `gas_price_ct_per_kwh`.
@@ -415,10 +493,20 @@ Administratorrechte sowie die aktuelle gemeinsame Projekt-Revision und
 akzeptiert eine endliche Zahl ab null oder `null` zum Löschen. Alte Speicherstände
 ohne Preis bleiben ohne Umschreiben lesbar. Raumänderungen erhalten den Preis,
 Preisänderungen die Raumkonfiguration und ungenutzte Altdaten.
+Zusätzlich enthält `get_project` optional `energy_settings` mit `heat_generator`
+(`gas` oder `bosch_aw5800_5`) und den drei optionalen Sensor-IDs
+`pv_forecast_entity_id`, `electricity_price_entity_id`, `feed_in_tariff_entity_id`.
+`heizlast_ha/save_energy_settings` speichert die vollständige Auswahl mit
+Administratorrechten und derselben optimistischen Projekt-Revision. Neue
+Quellen müssen zur vorgesehenen Integration und Sensorrolle gehören. Entfernte
+historische Zuordnungen bleiben lesbar. Alte Speicherstände ohne diese Felder
+bleiben ohne Umschreiben gültig. Jeder Speicherbefehl erhält die anderen
+Einstellungen und ungenutzte Altdaten. PV-Prognosen, Tarifreihen und
+Herstellerkennlinien werden nicht im Projekt oder Planungsdatensatz gespeichert.
 Diese Werte sind Benutzerkonfiguration und verändern keine Planungsdaten.
 Normale Benutzer erhalten nur Lesezugriff.
 
-Sensorzuordnungen, feste Raumtemperaturen und Gaspreis werden über Home Assistants
+Sensorzuordnungen, feste Raumtemperaturen, Gaspreis und Energieauswahl werden über Home Assistants
 Storage-Helfer im Konfigurationsverzeichnis unter `.storage` gespeichert. Das
 Konfigurationsverzeichnis einschließlich `.storage` sichern. Aus Versionen bis
 0.9.0 vorhandene eigene Pläne werden beim Update intern unverändert aufbewahrt,

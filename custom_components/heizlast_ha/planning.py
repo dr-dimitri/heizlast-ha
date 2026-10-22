@@ -41,6 +41,40 @@ def validate_gas_price(value: Any) -> float | None:
     return value
 
 
+ENERGY_SENSOR_ROLES = (
+    "pv_forecast_entity_id",
+    "electricity_price_entity_id",
+    "feed_in_tariff_entity_id",
+)
+
+
+def validate_energy_settings(
+    settings: Any,
+    previous: dict[str, Any],
+    is_source_sensor: Callable[[str, str], bool],
+) -> JsonObject:
+    """Validate generator and explicit source selections without live data defaults."""
+    if not isinstance(settings, dict) or set(settings) != {
+        "heat_generator",
+        *ENERGY_SENSOR_ROLES,
+    }:
+        raise ProjectError("Wärmeerzeuger: Die Einstellungen sind unvollständig.")
+    if settings["heat_generator"] not in ("gas", "bosch_aw5800_5"):
+        raise ProjectError("Wärmeerzeuger: Unbekanntes Modell.")
+    for role in ENERGY_SENSOR_ROLES:
+        entity_id = settings[role]
+        if entity_id is None:
+            continue
+        if not isinstance(entity_id, str) or not SENSOR_ENTITY_ID.fullmatch(entity_id):
+            raise ProjectError("Wärmeerzeuger: Ungültige Sensor-ID.")
+        if entity_id != previous.get(role) and not is_source_sensor(role, entity_id):
+            raise ProjectError(
+                "Wärmeerzeuger: Der neue Sensor stammt nicht aus der "
+                "erforderlichen PV- oder SAX-Integration."
+            )
+    return dict(settings)
+
+
 def validate_planning_temperatures(temperatures: Any) -> dict[str, float]:
     """Accept explicit Celsius values only for the fixed calculation zones."""
     if not isinstance(temperatures, dict):

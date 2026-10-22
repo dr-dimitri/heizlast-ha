@@ -28,8 +28,8 @@ Diese Vorgaben gelten für das gesamte Repository.
   Neuanlage, kein Import und keine Geometriebearbeitung für eigene Grundrisse
   anbieten. Am festen Plan sind nur Sensorzuordnungen und feste Raumtemperaturen
   der elf Rechenzonen veränderbar. Der zusätzliche Simulationstab bietet die
-  Auswahl von Tag und Stunde sowie einen separat gespeicherten Gaspreis für
-  die Kostenschätzung; der Planungsdatensatz wird dadurch nicht verändert.
+  Auswahl von Tag und Stunde sowie separat gespeicherte Gaspreis- und Energieeinstellungen für
+  den Vergleich von Gas, Bosch-Wärmepumpe, Netzstrom und PV; der Planungsdatensatz wird dadurch nicht verändert.
 - Dargestellt wird ausschließlich das beheizte Wohnhaus. Spitzboden,
   Technikraum, Gerätelager und Garage bleiben außerhalb des Dashboards.
 
@@ -159,7 +159,7 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
 ### Versionierung und Paketinhalt
 
 - `VERSION` ist die zentrale Projektversion im Format `MAJOR.MINOR.PATCH`,
-  aktuell `0.19.0`. Für eine neue Implementierung die Version nach SemVer
+  aktuell `0.20.0`. Für eine neue Implementierung die Version nach SemVer
   erhöhen. Jeder Merge benötigt eine bisher unveröffentlichte Version für das
   verpflichtende HACS-Release; reine Dokumentationsänderungen erhöhen mindestens
   die Patch-Version. CI-Builds erhalten zusätzlich eine eindeutige Buildkennung.
@@ -244,7 +244,7 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   zugehörige Bibliotheken mehr.
 - Der authentifizierte Leseendpunkt `heizlast_ha/get_project` liefert nur
   `revision`, `planning_bindings`, `planning_temperatures` und bei hinterlegtem
-  Gaspreis zusätzlich `gas_price_ct_per_kwh`.
+  Gaspreis zusätzlich `gas_price_ct_per_kwh` sowie optional `energy_settings`.
   `heizlast_ha/save_planning_bindings`
   erfordert Administratorrechte und eine aktuelle optimistische Projekt-Revision.
   Änderungen sind auf Sensorzuordnungen und feste Raumtemperaturen der elf
@@ -379,6 +379,57 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   `frontend/dist/heizlast-ha-card.js`. Abhängigkeiten und Lockfile liegen im
   Frontendordner; Vite ist auf die korrigierte Patchversion 8.3.5 festgelegt.
   Der lokale Entwicklungsadapter wird nicht in die Karte gebündelt.
+
+### Wärmeerzeuger und Energievergleich
+
+- `heat-pump.ts` ergänzt die vorhandene stündliche FBH-Rechnung um ausschließlich
+  Bosch Compress 5800i AW 5 OR-S (5-kW-Modellklasse). Herstellerdaten stammen aus
+  Bosch-Planungsunterlage 6721891866 (2025/04), S. 81 Tabelle 29 und S. 4:
+  https://bosch-de-de.boschhc-documents.com/download/pdf/file/6721891866 .
+  Zusammengehörige maximale W35-Leistung/COP bei A−7/A2/A7 werden linear
+  interpoliert. Lineare Vorlaufverhältnisse A7/W35 zu A7/W55 gelten angenähert
+  für alle Außenpunkte und werden auf W20..60 extrapoliert. Unter W35 keine
+  Kapazitätserhöhung, oberhalb A7 konstante A7-Werte bis A45. Unter A−7 kein
+  belegter Modellpunkt. Das ist kein vollständiges Kennfeld; nominale Teillast-
+  COPs und SCOP werden nicht als stündlicher COP eingesetzt. Bei Leistungsdefizit,
+  nicht erreichbarer FBH oder fehlenden Punkten bleiben Tagesstrom/-kosten
+  unbekannt. Kein impliziter Heizstab oder Gas-Backup. Nullbedarf ist gültig.
+- `energy-comparison.ts` bilanziert zeitgleichen Netz-/PV-Strom ohne Übertrag
+  zwischen Stunden. PV-Erzeugung ist vereinfachend vollständig für die WP
+  verfügbar, keine Haushaltslast, Batterie oder Lastverschiebung. Die PV-Nutzung
+  ist eine Obergrenze; gleichmäßige Leistung im Intervall ist eine Annahme.
+  Kosten = Netzstrom zum Intervalltarif + PV-Strom zur entgangenen
+  Einspeisevergütung. Daneben stets Netzreferenz ohne PV und Gas nach bisheriger
+  95-%-Annahme. Lücken/Überlappungen bleiben unbekannt; Nullbedarf bleibt null.
+- Adminspeicherung `heizlast_ha/save_energy_settings` mit gemeinsamer Revision
+  und vollständigem `settings`-Objekt: `heat_generator` (`gas` oder
+  `bosch_aw5800_5`), `pv_forecast_entity_id`, `electricity_price_entity_id`,
+  `feed_in_tariff_entity_id` (je Sensor-ID oder null). Alte Speicherstände bleiben
+  lesbar; Gas-/Raumdaten und ungenutzte Altdaten bleiben erhalten. Neue IDs werden
+  gegen die Integrations-/Rollenidentität in der HA-Registry geprüft. Keine
+  zusätzlichen Pflichtabhängigkeiten. Standard ohne Auswahl ist Gas.
+- `get_energy_sources` liefert nur lesbare, nicht deaktivierte passende
+  Registry-Quellen mit Entitäts-/Konfigurationseintrags-ID. `get_energy_forecast`
+  prüft Leserechte und absolute Zeitgrenzen bis 26 h, liest den lokalen
+  `pv_forecast.get_forecast`-Cache mit 60-Minuten-Fenster und liefert ausschließlich
+  bereinigte Intervalle, Status und Frische. Keine Stundenwerte aus Tageszahlen
+  erfinden. Nur vollständige Prognosen unter 60 Minuten alt sind nutzbar;
+  Ablaufzeit invalidiert die UI auch zwischen Minutenabfragen. Keine Rohantworten,
+  Standorte, Prognosen oder Tarifreihen speichern oder an externe Dienste senden.
+- SAX-Import-/Vergütungssensoren werden über `sax_power` und Unique-ID-Rolle
+  erkannt. Zustände ct/kWh, Attribute `base_price_eur_kwh` und
+  `windows[].price_eur_kwh` EUR/kWh. Feste/tägliche Tarife in HA-Zeitzone mit
+  Mitternacht, Zeitumstellung und gebrochenem Offset behandeln; Tarifwechsel
+  teilen Intervalle. Dynamische Cache-Reihen über
+  `sax_power/dashboard/tariff/series` nur heute/morgen, keine Preisfortschreibung
+  für spätere Tage; negative Preise zulassen. Einspeisewert aus dem Sensor für
+  den ausgewählten Tag als konstant annehmen. Leserechte für Vergleich, Admin
+  für gespeicherte Auswahl. Die UI liest Quellen jede Minute, steuert nichts.
+- Tests prüfen Herstellerpunkte, Vorlauf-/Außeneinfluss, Leistungslimit,
+  unbekannte/Nullwerte, Tarifgrenzen, Zeitumstellung, PV-Zeitgleichheit,
+  Opportunitätskosten, getrennte Datenlücken, Immutabilität, Quellidentität,
+  Leserechte, Speichern, Konflikte, Speicherfehler und Erhalt bisheriger Daten.
+  README und Modellkontext im selben Änderungssatz nachführen.
 
 ### Fester Grundriss und Quelldaten
 
