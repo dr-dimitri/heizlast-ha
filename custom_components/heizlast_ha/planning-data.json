@@ -8,7 +8,89 @@
   },
   "underfloor_heating": {
     "design_supply_temperature_c": 35,
-    "design_return_temperature_c": 28
+    "design_return_temperature_c": 28,
+    "installation": {
+      "pipe_outer_diameter_mm": 16,
+      "pipe_wall_thickness_mm": 2,
+      "manifolds": [
+        {
+          "floor": "EG",
+          "zone_id": 4,
+          "connection_zone_id": 4
+        },
+        {
+          "floor": "OG",
+          "zone_id": 11,
+          "connection_zone_id": 8
+        }
+      ],
+      "circuits": [
+        {
+          "zone_id": 1,
+          "length_m": 46
+        },
+        {
+          "zone_id": 2,
+          "length_m": 51
+        },
+        {
+          "zone_id": 3,
+          "length_m": 51
+        },
+        {
+          "zone_id": 4,
+          "length_m": 64
+        },
+        {
+          "zone_id": 5,
+          "length_m": 102
+        },
+        {
+          "zone_id": 5,
+          "length_m": 101
+        },
+        {
+          "zone_id": 5,
+          "length_m": 71
+        },
+        {
+          "zone_id": 5,
+          "length_m": 46
+        },
+        {
+          "zone_id": 5,
+          "length_m": 79
+        },
+        {
+          "zone_id": 6,
+          "length_m": 77
+        },
+        {
+          "zone_id": 6,
+          "length_m": 67
+        },
+        {
+          "zone_id": 6,
+          "length_m": 63
+        },
+        {
+          "zone_id": 7,
+          "length_m": 96
+        },
+        {
+          "zone_id": 9,
+          "length_m": 118
+        },
+        {
+          "zone_id": 10,
+          "length_m": 99
+        },
+        {
+          "zone_id": 11,
+          "length_m": 61
+        }
+      ]
+    }
   },
   "room_heat_load_sum_w": 7354.5,
   "zones": [
@@ -934,12 +1016,17 @@
         8,
         10
       ]
+    },
+    "heating_installation": {
+      "document": "Benutzerangabe",
+      "description": "Heizkreislängen je Rechenzone, Rohrdimension 16 × 2 mm, Verteiler in EG-Diele und OG-Ostzimmer sowie Beheizung der OG-Diele durch Zuleitungen bestätigt."
     }
   },
   "notes": {
     "room_sum": "Lüftungsverluste gehen gemäß Heizlastberechnung, Seite 5, Fußnote 4, nur hälftig in die Gebäudeheizlast ein. Deshalb ist die Raumheizlastsumme größer als die Gebäudeheizlast.",
     "geometry": "Vereinfachte Raumkonturen aus den Plänen, keine Vermessung. Die angegebenen Flächen stammen aus den Dokumenten.",
-    "solar": "Fensterflächen sind dokumentierte Bauteilflächen, keine Netto-Glasflächen. Der Rahmenfaktor des EnEV-Nachweises wird getrennt als wirksamer Glasanteil angewandt. Die letzte AF-Zeile der Zone 5 mit 2,332 m² hat keine eigene Orientierungsangabe; West ist aus der Abzugsfläche der West-Außenwand abgeleitet (Heizlastberechnung, Seite 10 / R5: 4,1408 m² minus 1,8088 m²). Die Südfläche der Zone 5 enthält zwei transparente Außentürelemente mit zusammen 8,3952 m²; ihre Einbeziehung wird durch den Fassadenflächenabgleich mit dem EnEV-Nachweis, Seiten 5 und 6 / Abschnitt 5.3, gestützt. Die Eingangstür der Zone 4 ist nicht in den transparenten Flächen enthalten. Fassadensummen stimmen innerhalb der Quellenrundung von 0,02 m² je Orientierung überein. Die Faktoren sind dokumentierte Berechnungsannahmen; eine zeitabhängige reale Verschattung ist damit nicht gemessen."
+    "solar": "Fensterflächen sind dokumentierte Bauteilflächen, keine Netto-Glasflächen. Der Rahmenfaktor des EnEV-Nachweises wird getrennt als wirksamer Glasanteil angewandt. Die letzte AF-Zeile der Zone 5 mit 2,332 m² hat keine eigene Orientierungsangabe; West ist aus der Abzugsfläche der West-Außenwand abgeleitet (Heizlastberechnung, Seite 10 / R5: 4,1408 m² minus 1,8088 m²). Die Südfläche der Zone 5 enthält zwei transparente Außentürelemente mit zusammen 8,3952 m²; ihre Einbeziehung wird durch den Fassadenflächenabgleich mit dem EnEV-Nachweis, Seiten 5 und 6 / Abschnitt 5.3, gestützt. Die Eingangstür der Zone 4 ist nicht in den transparenten Flächen enthalten. Fassadensummen stimmen innerhalb der Quellenrundung von 0,02 m² je Orientierung überein. Die Faktoren sind dokumentierte Berechnungsannahmen; eine zeitabhängige reale Verschattung ist damit nicht gemessen.",
+    "heating_installation": "Die angegebenen Heizkreislängen werden als Raumrohrlängen verwendet. Zusätzliche Hin- und Rückleitungen sind unbekannt und werden ausschließlich als einstellbare Szenarioannahmen ergänzt. Die OG-Diele hat keinen eigenen Heizkreis. Die Verteilung der geschätzten Zuleitungen auf die jeweilige Diele ist eine vereinfachende Modellannahme; genaue Leitungswege, Bodenaufbau und gemessene Durchflüsse sind nicht belegt."
   },
   "solar_assumptions": {
     "glazing_fraction": 0.7,

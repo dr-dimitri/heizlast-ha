@@ -14,10 +14,13 @@ DATA = (
 )
 
 
-def test_heating_design_temperatures_have_neutral_source_without_emitter_assumptions():
+def test_heating_design_temperatures_and_installation_have_separate_neutral_sources():
     data = json.loads(DATA.read_text())
     heating = data["underfloor_heating"]
-    assert heating == {
+    assert {
+        key: heating[key]
+        for key in ("design_supply_temperature_c", "design_return_temperature_c")
+    } == {
         "design_supply_temperature_c": 35,
         "design_return_temperature_c": 28,
     }
@@ -34,6 +37,37 @@ def test_heating_design_temperatures_have_neutral_source_without_emitter_assumpt
     )
     # Active floor area and a room-specific emitter curve are not documented.
     assert not any("underfloor_heating" in zone for zone in data["zones"])
+
+
+def test_confirmed_circuits_keep_og_corridor_without_a_dedicated_loop():
+    data = json.loads(DATA.read_text())
+    installation = data["underfloor_heating"]["installation"]
+    assert installation["pipe_outer_diameter_mm"] == 16
+    assert installation["pipe_wall_thickness_mm"] == 2
+    assert installation["manifolds"] == [
+        {"floor": "EG", "zone_id": 4, "connection_zone_id": 4},
+        {"floor": "OG", "zone_id": 11, "connection_zone_id": 8},
+    ]
+    circuits = installation["circuits"]
+    assert len(circuits) == 16
+    assert sum(circuit["length_m"] for circuit in circuits) == 1192
+    zones = {zone["id"]: zone for zone in data["zones"]}
+    assert {circuit["zone_id"] for circuit in circuits} == set(zones) - {8}
+    for circuit in circuits:
+        assert circuit["zone_id"] in zones
+        assert math.isfinite(circuit["length_m"]) and circuit["length_m"] > 0
+        # Estimated connection lengths and flows belong only to the scenario.
+        assert set(circuit) == {"zone_id", "length_m"}
+    for floor, expected in (("EG", 611), ("OG", 581)):
+        assert (
+            sum(
+                circuit["length_m"]
+                for circuit in circuits
+                if zones[circuit["zone_id"]]["floor"] == floor
+            )
+            == expected
+        )
+    assert data["sources"]["heating_installation"]["document"] == "Benutzerangabe"
 
 
 def test_documented_design_temperature_has_neutral_source_and_valid_zone_deltas():
