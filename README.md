@@ -1,7 +1,7 @@
 # heizlast-ha
 
 Home-Assistant-Integration mit einer interaktiven digitalen Grundrisskarte.
-Version **0.18.0** öffnet den fest implementierten Grundriss direkt in der
+Version **0.19.0** öffnet den fest implementierten Grundriss direkt in der
 HA-Seitenleiste. Erdgeschoss und Obergeschoss zeigen die aus den Werkplänen
 übernommenen Raumkonturen und die belegten Normheizlasten von elf Rechenzonen.
 Räume lassen sich anklicken; rechts stehen Fläche, Auslegungstemperatur,
@@ -250,12 +250,37 @@ FBH-Leistungsmodell und dessen Umkehrung zur nötigen Vorlauftemperatur.
 
 Der Tab **Simulation** berechnet einen vollständigen Tag in **Stundenschritten**.
 Wählbar sind heute und die folgenden sechs Tage. Das Diagramm zeigt die Summe
-der Raumheizlasten in W auf der linken Achse und den nötigen gemeinsamen Vorlauf
-in °C auf der rechten Achse. Eine Stundentabelle liefert die genauen Werte,
-Außentemperatur und Globalstrahlung. Durch Auswahl einer Stunde zeigen die
+der Raumheizlasten in W auf der linken Achse sowie den nötigen gemeinsamen Vorlauf
+und die Außentemperatur in °C auf der rechten Achse. Die gemeinsame Temperaturachse
+umfasst auch negative Außentemperaturen. Eine separate Stundenwertliste entfällt.
+Stunden lassen sich im Diagramm oder im Auswahlfeld wählen; Vorlauf und
+Außentemperatur der gewählten Stunde stehen zusätzlich unter dem Diagramm.
+Durch Auswahl einer Stunde zeigen die
 unveränderten EG-/OG-Grundrisse die zugehörigen Raumlasten, solaren Gewinne,
 FBH-Leistungen und Defizite. Die Tagesenergie in kWh ist die Summe der
 stündlichen Bedarfe. Sie bleibt bei Datenlücken unbekannt.
+
+Die Simulation schätzt außerdem den **Gasbedarf in kWh für den gewählten Tag**.
+Für eine moderne Brennwerttherme gilt die feste Annahme **95 % Nutzungsgrad
+bezogen auf den Brennwert**: `Gasbedarf = Tageswärmebedarf / 0,95`.
+Der [Energie-Atlas Bayern des Bayerischen Landesamts für Umwelt](https://www.umweltpakt.bayern.de/werkzeuge/heizungstechnik/module.htm)
+nennt für Brennwertkessel 90–95 % bezogen auf den Brennwert. Der hier angesetzte
+Wert ist eine günstige Modellannahme, kein belegter Anlagen- oder Messwert.
+Es wird ausschließlich Raumheizung betrachtet; Warmwasser, zusätzliche Verteil-
+und Speicherverluste sowie Hilfsstrom sind nicht modelliert. Auch bei nicht
+erreichbarem Vorlauf beschreibt der Wert nur die rechnerisch nötige Gasenergie
+für den Wärmebedarf, keinen tatsächlich möglichen Anlagenbetrieb.
+
+Der **Gaspreis als Brutto-Arbeitspreis in ct/kWh** ist eingebbar und wird von
+Administratoren ausdrücklich in Home Assistant gespeichert. Benutzer mit
+Leserechten sehen den gespeicherten Preis und die Kosten. Die Gesamtkosten
+für den gewählten Tag sind `Gasbedarf × Arbeitspreis / 100` in Euro, ohne
+Grundpreis. Berechnet wird mit ungerundeten Werten; die Anzeige rundet erst
+zum Schluss. Es gibt keinen vorgegebenen Tarif. Ohne Preis bleiben die Kosten
+unbekannt, bei unvollständigem Tageswärmebedarf auch der Gasbedarf. Null ist
+ein gültiger Preis; eine leere Eingabe löscht ihn. Punkt oder Komma als
+Dezimaltrennzeichen sind möglich. Speichern, Verwerfen, Konflikte und
+Speicherfehler erhalten die Raumkonfiguration und den Planungsdatensatz.
 
 Die stündliche Außentemperatur und Sonneneinstrahlung stammen aus demselben
 **Open-Meteo-Abruf** wie die Live-Wetterwerte. Es gibt keine manuellen Wetter-
@@ -356,8 +381,10 @@ behauptet. Die Raumoberfläche ist der höchste Segmentwert, der Rücklauf das
 Mittel der beteiligten Kreise.
 
 Die Kurve ist eine Folge **stationärer Leistungsberechnungen**, keine
-Aufheizzeit-, Raumtemperatur- oder Verbrauchsprognose und keine reale
-Heizungssteuerung. Die mögliche FBH-Leistung ist verfügbare Kapazität.
+Aufheizzeit- oder Raumtemperaturprognose und keine reale Heizungssteuerung.
+Die Gas- und Kostenschätzung verwendet nur den modellierten Wärmebedarf und
+den festen Nutzungsgrad; sie ist keine Prognose des tatsächlichen Gaszählers.
+Die mögliche FBH-Leistung ist verfügbare Kapazität.
 Wärmespeicherung und dynamische Regelung werden nicht modelliert; Ergebnisse
 tragen deshalb das Näherungszeichen **≈**.
 
@@ -379,13 +406,19 @@ Quellenbelegen in `custom_components/heizlast_ha/planning-data.json`.
 Die Integration liefert keinen Zeicheneditor, JSON-Import, LLM-Prompt oder
 Speicherendpunkt für eigene Raumgeometrie aus. Über die authentifizierte API
 können ausschließlich Sensorzuordnungen und feste Raumtemperaturen der elf
-festen Rechenzonen verändert werden. Die API liefert `revision`,
+festen Rechenzonen sowie der Gaspreis verändert werden. Die API liefert `revision`,
 `planning_bindings` und `planning_temperatures`; der bestehende administrative
 Speicherbefehl akzeptiert zusätzlich das optionale Feld `temperatures`.
+`get_project` liefert zusätzlich den optionalen `gas_price_ct_per_kwh`.
+`heizlast_ha/save_gas_price` speichert ausschließlich diesen Preis, erfordert
+Administratorrechte sowie die aktuelle gemeinsame Projekt-Revision und
+akzeptiert eine endliche Zahl ab null oder `null` zum Löschen. Alte Speicherstände
+ohne Preis bleiben ohne Umschreiben lesbar. Raumänderungen erhalten den Preis,
+Preisänderungen die Raumkonfiguration und ungenutzte Altdaten.
 Diese Werte sind Benutzerkonfiguration und verändern keine Planungsdaten.
 Normale Benutzer erhalten nur Lesezugriff.
 
-Sensorzuordnungen und feste Raumtemperaturen werden über Home Assistants
+Sensorzuordnungen, feste Raumtemperaturen und Gaspreis werden über Home Assistants
 Storage-Helfer im Konfigurationsverzeichnis unter `.storage` gespeichert. Das
 Konfigurationsverzeichnis einschließlich `.storage` sichern. Aus Versionen bis
 0.9.0 vorhandene eigene Pläne werden beim Update intern unverändert aufbewahrt,

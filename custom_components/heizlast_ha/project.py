@@ -14,6 +14,7 @@ from .planning import (
     JsonObject,
     ProjectError,
     is_temperature_state,
+    validate_gas_price,
     validate_planning_bindings,
     validate_planning_temperatures,
 )
@@ -91,18 +92,22 @@ class Project:
             raise ProjectError(
                 "Gespeicherte Temperatur und Sensorzuordnung kollidieren."
             )
+        validate_gas_price(stored.get("gas_price_ct_per_kwh"))
         self.data = deepcopy(stored)
 
     def snapshot(self) -> JsonObject:
         """Return an isolated copy; callers cannot accidentally mutate persistence."""
         self._ensure_active()
-        return {
+        result = {
             "revision": self.data["revision"],
             "planning_bindings": deepcopy(self.data.get("planning_bindings", {})),
             "planning_temperatures": deepcopy(
                 self.data.get("planning_temperatures", {})
             ),
         }
+        if "gas_price_ct_per_kwh" in self.data:
+            result["gas_price_ct_per_kwh"] = self.data["gas_price_ct_per_kwh"]
+        return result
 
     def _ensure_active(self) -> None:
         if not self.active:
@@ -116,6 +121,29 @@ class Project:
         )
         self.data = candidate
 
+    def _check_revision(self, revision: int) -> None:
+        self._ensure_active()
+        if type(revision) is not int or revision != self.data["revision"]:
+            raise ProjectError(
+                "Das Projekt wurde zwischenzeitlich geändert. "
+                "Bitte neu laden und Änderungen erneut prüfen.",
+                "conflict",
+            )
+
+    async def async_save_gas_price(self, revision: int, price: Any) -> JsonObject:
+        """Persist the work price without changing room settings or legacy data."""
+        async with self.lock:
+            self._check_revision(revision)
+            checked = validate_gas_price(price)
+            candidate = deepcopy(self.data)
+            candidate["revision"] += 1
+            if checked is None:
+                candidate.pop("gas_price_ct_per_kwh", None)
+            else:
+                candidate["gas_price_ct_per_kwh"] = checked
+            await self._async_persist(candidate)
+            return self.snapshot()
+
     async def async_save_planning_bindings(
         self,
         revision: int,
@@ -124,13 +152,7 @@ class Project:
     ) -> JsonObject:
         """Persist room settings, leaving any inactive legacy data intact."""
         async with self.lock:
-            self._ensure_active()
-            if type(revision) is not int or revision != self.data["revision"]:
-                raise ProjectError(
-                    "Das Projekt wurde zwischenzeitlich geändert. "
-                    "Bitte neu laden und Änderungen erneut prüfen.",
-                    "conflict",
-                )
+            self._check_revision(revision)
             checked = validate_planning_bindings(
                 bindings,
                 self.data.get("planning_bindings", {}),

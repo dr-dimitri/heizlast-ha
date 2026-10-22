@@ -3,6 +3,7 @@ export interface Project {
   revision: number;
   planning_bindings: Record<string, string[]>;
   planning_temperatures?: Record<string, number>;
+  gas_price_ct_per_kwh?: number;
 }
 export interface HassState {
   entity_id: string;
