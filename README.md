@@ -274,16 +274,55 @@ Raumdefizite erzeugen. Wasser- und Oberflächengrenzen gelten weiterhin.
 Für ein vollständig solarfreies Szenario **Bewölkt** auswählen und unter
 Wetterannahmen die Referenz-Diffusstrahlung bewölkt auf **0 W/m²** setzen.
 
-Die Spreizung am Referenzpunkt ist
-ebenfalls einstellbar; ihre Änderung verändert den angenommenen
-Referenzrücklauf. Das Wassermodell verwendet die logarithmische
-Heizmittelübertemperatur. Die Referenzleistung wird mit dem Verhältnis
-dieser Übertemperatur zur Referenzübertemperatur potenziert.
-Aus Referenzleistung und Referenzspreizung wird ein konstanter spezifischer
-Durchfluss angenommen. Leistung und aktueller Rücklauf werden gemeinsam
-gelöst; bei niedrigerem Vorlauf wird keine unveränderte 7-K-Abkühlung
-bis unter die Raumtemperatur behauptet. Vorlauf auf oder unter dem
-Raumtemperaturziel ergibt keine Heizleistung.
+Die vom Benutzer bestätigten Heizkreise, Rohrdimension und Verteilerpositionen
+stehen unter `underfloor_heating.installation` in derselben Planungsdatei,
+mit einem getrennten neutralen Quellenbeleg **Benutzerangabe**. Die angegebenen
+Längen gelten als Raumrohrlängen. Hin- und Rückleitungen kommen als geschätzte,
+einstellbare Zusatzlänge hinzu: zunächst **6 m je Kreis insgesamt**, also je
+3 m Hin- und Rückleitung. Diese pauschale Annahme ersetzt kein Aufmaß.
+Der EG-Verteiler befindet sich in der Diele, der OG-Verteiler im Ostzimmer.
+Kreise im jeweiligen Verteilerraum behalten ihre Anbindung in diesem Raum.
+Die übrigen Zuleitungen werden vereinfachend vollständig der jeweiligen Diele
+zugerechnet; der genaue Anteil im Verteiler-/Zielraum ist unbekannt.
+Die OG-Diele besitzt keinen eigenen Heizkreis. Ihre aktive Heizfläche wird aus
+der gesamten zugewiesenen Zuleitungslänge mal einer angenommenen **wirksamen
+Heizstreifenbreite von 0,15 m** geschätzt, gedeckelt auf den aktiven
+Flächenanteil der Planfläche. Diese Breite ist kein belegter Verlegeabstand.
+Räume mit eigenem Heizkreis behalten den einstellbaren aktiven Flächenanteil.
+Wo mehrere Kreise oder Zuleitungen denselben Raum versorgen, teilen sie diese
+Fläche proportional zu ihren Rohrlängen; keine Fläche wird doppelt gezählt.
+
+Die Simulation rechnet jeden Kreis in der Reihenfolge **Hinleitung → Raum →
+Rückleitung**. Für alle offenen Kreise wird zunächst derselbe, einstellbare
+**Durchfluss von 1,5 l/min je Kreis** angenommen. Er ist weder gemessen noch aus
+der Rohrlänge abgeleitet; ein hydraulischer Abgleich oder Pumpendruck wird
+nicht simuliert. Die Wasserrechnung verwendet näherungsweise 1 kg/l und
+1,163 Wh/(kg K): `Leistung = Durchfluss × 60 × 1,163 × Temperaturabfall`.
+Die [Uponor-Planungshinweise für Rohrsysteme, S. 96](https://brandportal.uponor.com/m/56e67af918404ae3/original/TI-MLCP-Tap-Water-Heating-DE.pdf)
+erläutern diese Wärmekapazität und die Wärmebilanz des Heizwasserstroms.
+Der Innendurchmesser aus Außenmaß und Wandstärke liefert außerdem den
+Rohrwasserinhalt; er dient keiner Aufheizzeit- oder Temperaturprognose.
+
+Die Spreizung am Referenzpunkt bleibt einstellbar und definiert zusammen mit
+der Referenzleistung die Kennlinie, nicht den tatsächlichen Temperaturabfall
+jedes Kreises. Das Wassermodell verwendet die logarithmische
+Heizmittelübertemperatur. Die Referenzleistung wird mit dem Verhältnis dieser
+Übertemperatur zur Referenzübertemperatur potenziert. Leistung und Rücklauf
+werden für jeden Rohrabschnitt gemeinsam aus Kennlinie und Wasserbilanz gelöst;
+der Ausgang eines Abschnitts ist der Eingang des nächsten. Wärme der
+Zuleitungen erscheint ausschließlich in der versorgten Diele beziehungsweise
+im Verteilerraum. Sie wird nicht zusätzlich dem Zielraum gutgeschrieben.
+Die Summe der Kreisleistungen entspricht der Summe der Raumleistungen.
+Bei Vorlauf auf oder unter dem Raumtemperaturziel oder bei Durchfluss null
+wird keine Heizleistung behauptet. Bei positivem Heizbetrieb bleibt der
+Kreisrücklauf über dem Raumtemperaturziel. Die Raumdetails zeigen das Mittel
+der Rückläufe aller beteiligten Kreise und die höchste modellierte
+Segment-Bodenoberfläche; die Wärmestromdichte ist das Flächenmittel.
+
+Ohne übergebene Installationsdaten bleibt der isolierte Rechenkern mit dem
+bisherigen Flächenmodell nutzbar: Aus Referenzleistung und Referenzspreizung
+folgt dann ein konstanter spezifischer Durchfluss. Die feste Dashboardansicht
+verwendet immer die bestätigten Kreise aus dem gemeinsamen Datensatz.
 Die Leistung wird zusätzlich durch die Oberflächenkennlinie
 `q = 8,92 × max(0, Bodenoberfläche − Raumtemperatur)^1,1` begrenzt.
 Im positiven Heizbetrieb darf die berechnete Bodenoberfläche weder die
@@ -294,9 +333,12 @@ Diese Oberflächenbeziehung ist fachlich belegt;
 Die logarithmische Übertemperatur und die üblichen Oberflächengrenzen
 werden in den [Uponor-Planungshinweisen, S. 23](https://brandportal.uponor.com/m/19769cf862d8a19a/original/Uponor-TI-planning-principles-UFHC-GER.pdf)
 erläutert. Die Wasserkennlinie, der Referenzwert, der aktive Flächenanteil
-und der spezifische Durchfluss sind ausdrücklich vereinfachende
-Modellannahmen. Rohrabstand, Bodenbelag,
-Wassermenge und eine herstellerspezifische Auslegung liegen nicht vor.
+und die Durchflüsse sind ausdrücklich vereinfachende Modellannahmen.
+Die Rohrlängen beeinflussen die Flächenverteilung auf die einzelnen Kreise und
+Zuleitungen; sie werden nicht unmittelbar in Watt umgerechnet. Eine eigene
+Kennlinie je Verlegeabstand ist nicht belegt. Bodenaufbau, Bodenbelag,
+tatsächlicher Verlegeabstand, Wärmeverluste nach unten und eine
+herstellerspezifische Auslegung bleiben unberücksichtigt.
 
 Die Monatsrechnung verwendet den 15. Tag des gewählten Monats in einem
 Nichtschaltjahr. Sonnenstand und Tageslänge folgen der Standortbreite und der

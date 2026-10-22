@@ -26,6 +26,17 @@ export interface SimulationParameters {
   sunnyDiffuseWPerM2: number;
   cloudyDiffuseWPerM2: number;
   groundReflectance: number;
+  circuitFlowLPerMin: number;
+  additionalConnectionLengthM: number;
+  connectionHeatingWidthM: number;
+}
+
+/** Confirmed installation data; connection lengths and flows remain scenario assumptions. */
+export interface HeatingInstallation {
+  pipe_outer_diameter_mm: number;
+  pipe_wall_thickness_mm: number;
+  manifolds: ReadonlyArray<{ floor: "EG" | "OG"; zone_id: number; connection_zone_id: number }>;
+  circuits: ReadonlyArray<{ zone_id: number; length_m: number }>;
 }
 
 export interface SimulationZone extends HeatLossZone, SolarZone {
@@ -43,6 +54,7 @@ export interface SimulationPlanningData {
   underfloor_heating: {
     design_supply_temperature_c: number;
     design_return_temperature_c: number;
+    installation?: HeatingInstallation;
   };
 }
 
@@ -61,6 +73,22 @@ export interface ZoneSimulationResult {
   peakHeatDemandW: number;
   peakDeficitW: number;
   peakSolarGainsW: number;
+  roomPipeLengthM: number;
+  connectionPipeLengthM: number;
+  pipeWaterVolumeL: number;
+}
+
+export interface CircuitSimulationResult {
+  zoneId: number;
+  roomPipeLengthM: number;
+  connectionPipeLengthM: number;
+  totalPipeLengthM: number;
+  waterVolumeL: number;
+  flowLPerMin: number;
+  returnTemperatureC: number;
+  roomHeatingPowerW: number;
+  connectionHeatingPowerW: number;
+  heatingPowerW: number;
 }
 
 export interface SimulationTotals {
@@ -88,6 +116,7 @@ export interface SimulationResult {
   totals: SimulationTotals | null;
   facadeIrradiance: Record<FacadeOrientation, number> | null;
   solarProfile: SimulationSolarProfile | null;
+  circuits: CircuitSimulationResult[];
 }
 
 type ScenarioNumberField = Exclude<keyof SimulationScenario, "weather">;
@@ -101,6 +130,7 @@ export const SIMULATION_RANGES = {
   maxFloorSurfaceTemperatureC: [15, 35], sunnyDirectNormalWPerM2: [0, 1400],
   sunnyDiffuseWPerM2: [0, 1000], cloudyDiffuseWPerM2: [0, 1000],
   groundReflectance: [0, 1],
+  circuitFlowLPerMin: [0, 5], additionalConnectionLengthM: [0, 30], connectionHeatingWidthM: [0, 0.5],
 } as const satisfies Record<SimulationNumberField, readonly [number, number]>;
 
 const SCENARIO_NUMBER_FIELDS: ScenarioNumberField[] = [
@@ -111,6 +141,7 @@ const PARAMETER_FIELDS: Array<keyof SimulationParameters> = [
   "referenceIndoorTemperatureC", "emissionExponent", "maxFloorSurfaceTemperatureC",
   "sunnyDirectNormalWPerM2", "sunnyDiffuseWPerM2", "cloudyDiffuseWPerM2",
   "groundReflectance",
+  "circuitFlowLPerMin", "additionalConnectionLengthM", "connectionHeatingWidthM",
 ];
 const SOLAR_FACTOR_FIELDS: Array<keyof SolarFactors> = [
   "glazing_fraction", "g_value", "shading_factor", "sun_protection_factor", "incidence_factor",
@@ -137,27 +168,32 @@ export function defaultSimulationScenario(data: SimulationPlanningData): Simulat
 /** Calibrate the shared initial emission to cover every zone without solar gains. */
 export function defaultSimulationParameters(data: SimulationPlanningData): SimulationParameters {
   const activeFloorFraction = 0.8;
+  const circuitParameters = { activeFloorFraction, circuitFlowLPerMin: 1.5,
+    additionalConnectionLengthM: 6, connectionHeatingWidthM: 0.15 };
+  const layout = data.underfloor_heating.installation ? circuitLayout(data, circuitParameters) : undefined;
   const requiredFluxes = data.zones.map((zone) => {
     const loss = heatLossW(zone, HEATING_CALIBRATION.indoorTemperatureC,
       HEATING_CALIBRATION.outdoorTemperatureC, data.building.design_outdoor_temperature_c);
     if (loss === null || !Number.isFinite(zone.area) || zone.area < 0) return NaN;
     if (zone.area === 0) return loss === 0 ? 0 : NaN;
-    return loss / (zone.area * activeFloorFraction);
+    const activeArea = layout?.areas.get(zone.id) ?? zone.area * activeFloorFraction;
+    return activeArea > 0 ? loss / activeArea : loss === 0 ? 0 : NaN;
   });
   // Round upward to the UI's whole-W/m² step; do not hide impossible calibrations.
   const referenceHeatFluxWPerM2 = Math.ceil(Math.max(1, ...requiredFluxes));
   return {
     returnDropK: data.underfloor_heating.design_supply_temperature_c - data.underfloor_heating.design_return_temperature_c,
-    activeFloorFraction, referenceHeatFluxWPerM2, referenceIndoorTemperatureC: HEATING_CALIBRATION.indoorTemperatureC,
+    referenceHeatFluxWPerM2, referenceIndoorTemperatureC: HEATING_CALIBRATION.indoorTemperatureC,
     emissionExponent: 1.1, maxFloorSurfaceTemperatureC: 29, sunnyDirectNormalWPerM2: 700,
     sunnyDiffuseWPerM2: 100, cloudyDiffuseWPerM2: 150,
     groundReflectance: 0.2,
+    ...circuitParameters,
   };
 }
 
 const finiteNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
 const invalidResult = (errors: Iterable<string>): SimulationResult => ({
-  valid: false, errors: [...new Set(errors)], zones: [], totals: null, facadeIrradiance: null, solarProfile: null,
+  valid: false, errors: [...new Set(errors)], zones: [], totals: null, facadeIrradiance: null, solarProfile: null, circuits: [],
 });
 
 /** Validate both user assumptions and the supplied source data without changing either. */
@@ -228,6 +264,26 @@ function validationErrors(
           !finiteNumber(window.area_m2) || window.area_m2 < 0) errors.add(`${prefix}.solar_windows[${windowIndex}]`);
     });
   });
+  const installation = data.underfloor_heating?.installation;
+  if (installation !== undefined) {
+    const prefix = "data.underfloor_heating.installation";
+    if (!installation || !finiteNumber(installation.pipe_outer_diameter_mm) ||
+        !finiteNumber(installation.pipe_wall_thickness_mm) || installation.pipe_wall_thickness_mm <= 0 ||
+        installation.pipe_outer_diameter_mm <= 2 * installation.pipe_wall_thickness_mm ||
+        installation.pipe_outer_diameter_mm > 100) errors.add(`${prefix}.pipe`);
+    const floors = new Set<string>();
+    if (!Array.isArray(installation?.manifolds)) errors.add(`${prefix}.manifolds`);
+    else for (const manifold of installation.manifolds) {
+      if (!manifold || floors.has(manifold.floor) || !data.zones.some((zone) => zone?.id === manifold.zone_id && zone.floor === manifold.floor) ||
+          !data.zones.some((zone) => zone?.id === manifold.connection_zone_id && zone.floor === manifold.floor)) errors.add(`${prefix}.manifolds`);
+      if (manifold) floors.add(manifold.floor);
+    }
+    if (!Array.isArray(installation?.circuits) || installation.circuits.length === 0) errors.add(`${prefix}.circuits`);
+    else for (const circuit of installation.circuits) {
+      const zone = data.zones.find((zone) => zone?.id === circuit?.zone_id);
+      if (!zone || !floors.has(zone.floor) || !finiteNumber(circuit?.length_m) || circuit.length_m <= 0 || circuit.length_m > 1000) errors.add(`${prefix}.circuits`);
+    }
+  }
   return errors;
 }
 
@@ -318,6 +374,117 @@ function floorHeatFlux(
   return (low + high) / 2;
 }
 
+interface PipeSegment { zoneId: number; lengthM: number; areaM2: number; connection: boolean }
+interface CircuitLayout {
+  areas: Map<number, number>;
+  lengths: Map<number, { room: number; connection: number }>;
+  circuits: { zoneId: number; segments: PipeSegment[] }[];
+}
+
+/** Route additional supply/return lengths through the floor's declared connection zone.
+ * A circuit in the manifold room stays in that room. Routes are a scenario approximation.
+ */
+function circuitLayout(data: SimulationPlanningData, parameters: Pick<SimulationParameters,
+  "activeFloorFraction" | "additionalConnectionLengthM" | "connectionHeatingWidthM">): CircuitLayout {
+  const installation = data.underfloor_heating.installation!;
+  const lengths = new Map(data.zones.map((zone) => [zone.id, { room: 0, connection: 0 }]));
+  const circuits = installation.circuits.map((circuit) => {
+    const room = data.zones.find((zone) => zone.id === circuit.zone_id)!;
+    const manifold = installation.manifolds.find((candidate) => candidate.floor === room.floor)!;
+    const connectionZoneId = circuit.zone_id === manifold.zone_id ? circuit.zone_id : manifold.connection_zone_id;
+    const segments = [
+      { zoneId: connectionZoneId, lengthM: parameters.additionalConnectionLengthM / 2, areaM2: 0, connection: true },
+      { zoneId: circuit.zone_id, lengthM: circuit.length_m, areaM2: 0, connection: false },
+      { zoneId: connectionZoneId, lengthM: parameters.additionalConnectionLengthM / 2, areaM2: 0, connection: true },
+    ];
+    for (const segment of segments) lengths.get(segment.zoneId)![segment.connection ? "connection" : "room"] += segment.lengthM;
+    return { zoneId: circuit.zone_id, segments };
+  });
+  const areas = new Map(data.zones.map((zone) => {
+    const pipe = lengths.get(zone.id)!;
+    const available = zone.area * parameters.activeFloorFraction;
+    // A lead-only corridor has heated strips, rather than an invented full-area circuit.
+    return [zone.id, pipe.room > 0 ? available : Math.min(available, pipe.connection * parameters.connectionHeatingWidthM)];
+  }));
+  for (const circuit of circuits) for (const segment of circuit.segments) {
+    const pipe = lengths.get(segment.zoneId)!, length = pipe.room + pipe.connection;
+    segment.areaM2 = length > 0 ? areas.get(segment.zoneId)! * (segment.lengthM / length) : 0;
+  }
+  return { areas, lengths, circuits };
+}
+
+/** Water approximation: density 1 kg/l, heat capacity 1.163 Wh/(kg K). */
+const WATER_CAPACITY_W_PER_L_MIN_K = 1.163 * 60;
+
+function heatPipeSegment(
+  inletC: number, areaM2: number, capacityWPerK: number, referenceDelta: number,
+  scenario: SimulationScenario, parameters: SimulationParameters,
+): { powerW: number; outletC: number; surfaceC: number } {
+  const delta = inletC - scenario.indoorTemperatureC;
+  if (areaM2 <= 0 || capacityWPerK <= 0 || delta <= 0) return { powerW: 0, outletC: inletC, surfaceC: scenario.indoorTemperatureC };
+  const surfaceFlux = SURFACE_COEFFICIENT * Math.pow(Math.max(0, parameters.maxFloorSurfaceTemperatureC - scenario.indoorTemperatureC), SURFACE_EXPONENT);
+  let low = 0, high = Math.min(areaM2 * surfaceFlux, capacityWPerK * delta);
+  for (let iteration = 0; iteration < 80; iteration++) {
+    const power = (low + high) / 2;
+    const waterDelta = logarithmicMean(delta, delta - power / capacityWPerK);
+    const flux = Math.min(parameters.referenceHeatFluxWPerM2 * Math.pow(waterDelta / referenceDelta, parameters.emissionExponent),
+      SURFACE_COEFFICIENT * Math.pow(waterDelta, SURFACE_EXPONENT));
+    if (power <= areaM2 * flux) low = power;
+    else high = power;
+  }
+  const powerW = low;
+  return { powerW, outletC: inletC - powerW / capacityWPerK,
+    surfaceC: scenario.indoorTemperatureC + Math.pow(powerW / areaM2 / SURFACE_COEFFICIENT, 1 / SURFACE_EXPONENT) };
+}
+
+function circuitEmission(data: SimulationPlanningData, scenario: SimulationScenario, parameters: SimulationParameters) {
+  const installation = data.underfloor_heating.installation!, layout = circuitLayout(data, parameters);
+  const innerDiameterM = (installation.pipe_outer_diameter_mm - 2 * installation.pipe_wall_thickness_mm) / 1000;
+  const volumeLPerM = Math.PI * Math.pow(innerDiameterM / 2, 2) * 1000;
+  const referenceSupply = data.underfloor_heating.design_supply_temperature_c;
+  const referenceDelta = logarithmicMean(referenceSupply - parameters.referenceIndoorTemperatureC,
+    referenceSupply - parameters.returnDropK - parameters.referenceIndoorTemperatureC);
+  const capacity = parameters.circuitFlowLPerMin * WATER_CAPACITY_W_PER_L_MIN_K;
+  const zones = new Map(data.zones.map((zone) => {
+    const pipe = layout.lengths.get(zone.id)!;
+    return [zone.id, { activeFloorAreaM2: layout.areas.get(zone.id)!, heatingPowerW: 0,
+      floorSurfaceTemperatureC: scenario.indoorTemperatureC, heatFluxWPerM2: 0,
+      returnTemperatureC: scenario.supplyTemperatureC, roomPipeLengthM: pipe.room,
+      connectionPipeLengthM: pipe.connection, pipeWaterVolumeL: (pipe.room + pipe.connection) * volumeLPerM }];
+  }));
+  const returns = new Map<number, number[]>();
+  const circuits: CircuitSimulationResult[] = layout.circuits.map((circuit) => {
+    let inletC = scenario.supplyTemperatureC, roomHeatingPowerW = 0, connectionHeatingPowerW = 0;
+    for (const segment of circuit.segments) {
+      const emitted = heatPipeSegment(inletC, segment.areaM2, capacity, referenceDelta, scenario, parameters);
+      const zone = zones.get(segment.zoneId)!;
+      zone.heatingPowerW += emitted.powerW;
+      zone.floorSurfaceTemperatureC = Math.max(zone.floorSurfaceTemperatureC, emitted.surfaceC);
+      if (segment.connection) connectionHeatingPowerW += emitted.powerW;
+      else roomHeatingPowerW += emitted.powerW;
+      inletC = emitted.outletC;
+    }
+    for (const id of new Set(circuit.segments.filter((segment) => segment.lengthM > 0).map((segment) => segment.zoneId))) {
+      const temperatures = returns.get(id) ?? [];
+      temperatures.push(inletC);
+      returns.set(id, temperatures);
+    }
+    const roomPipeLengthM = circuit.segments[1].lengthM;
+    const connectionPipeLengthM = parameters.additionalConnectionLengthM;
+    const totalPipeLengthM = roomPipeLengthM + connectionPipeLengthM;
+    return { zoneId: circuit.zoneId, roomPipeLengthM, connectionPipeLengthM, totalPipeLengthM,
+      waterVolumeL: totalPipeLengthM * volumeLPerM, flowLPerMin: parameters.circuitFlowLPerMin,
+      returnTemperatureC: inletC, roomHeatingPowerW, connectionHeatingPowerW,
+      heatingPowerW: roomHeatingPowerW + connectionHeatingPowerW };
+  });
+  for (const [id, zone] of zones) {
+    zone.heatFluxWPerM2 = zone.activeFloorAreaM2 > 0 ? zone.heatingPowerW / zone.activeFloorAreaM2 : 0;
+    const temperatures = returns.get(id);
+    if (temperatures?.length) zone.returnTemperatureC = temperatures.reduce((sum, value) => sum + value, 0) / temperatures.length;
+  }
+  return { zones, circuits };
+}
+
 /** Daily means with unbuffered solar gains; floor emission remains a steady-state estimate. */
 export function simulateBuilding(
   data: SimulationPlanningData, scenario: SimulationScenario, parameters: SimulationParameters, site: SimulationSite,
@@ -332,13 +499,15 @@ export function simulateBuilding(
   const returnTemperatureC = scenario.supplyTemperatureC - parameters.returnDropK * flux / parameters.referenceHeatFluxWPerM2;
   const floorSurfaceTemperatureC = scenario.indoorTemperatureC + Math.pow(flux / SURFACE_COEFFICIENT, 1 / SURFACE_EXPONENT);
   if (![...Object.values(facadeIrradiance), flux, returnTemperatureC, floorSurfaceTemperatureC].every(Number.isFinite)) return invalidResult(["calculation"]);
+  const emission = data.underfloor_heating.installation ? circuitEmission(data, scenario, parameters) : undefined;
   const zones: ZoneSimulationResult[] = [];
   const totals: SimulationTotals = { heatLossW: 0, solarGainsW: 0, heatDemandW: 0, heatingPowerW: 0, balanceW: 0,
     solarSurplusW: 0, peakHeatDemandW: 0, peakDeficitW: 0, peakSolarGainsW: 0 };
   data.zones.forEach((zone, index) => {
     const loss = heatLossW(zone, scenario.indoorTemperatureC, scenario.outdoorTemperatureC, data.building.design_outdoor_temperature_c);
-    const activeFloorAreaM2 = zone.area * parameters.activeFloorFraction;
-    const heatingPowerW = activeFloorAreaM2 * flux;
+    const circuitZone = emission?.zones.get(zone.id);
+    const activeFloorAreaM2 = circuitZone?.activeFloorAreaM2 ?? zone.area * parameters.activeFloorFraction;
+    const heatingPowerW = circuitZone?.heatingPowerW ?? activeFloorAreaM2 * flux;
     if (loss === null || !Number.isFinite(activeFloorAreaM2) || !Number.isFinite(heatingPowerW)) {
       errors.add(`data.zones[${index}]`);
       return;
@@ -346,7 +515,8 @@ export function simulateBuilding(
     const result: ZoneSimulationResult = { id: zone.id, heatLossW: loss, solarGainsW: 0,
       heatDemandW: 0, heatingPowerW, balanceW: 0, activeFloorAreaM2, floorSurfaceTemperatureC,
       returnTemperatureC, heatFluxWPerM2: flux, solarSurplusW: 0,
-      peakHeatDemandW: 0, peakDeficitW: 0, peakSolarGainsW: 0 };
+      peakHeatDemandW: 0, peakDeficitW: 0, peakSolarGainsW: 0,
+      roomPipeLengthM: 0, connectionPipeLengthM: 0, pipeWaterVolumeL: 0, ...circuitZone };
     zones.push(result);
     totals.heatLossW += loss;
     totals.heatingPowerW += heatingPowerW;
@@ -385,6 +555,8 @@ export function simulateBuilding(
   totals.peakDeficitW = Math.max(0, totals.peakHeatDemandW - totals.heatingPowerW);
   if (!Object.values(totals).every(Number.isFinite)) errors.add("calculation");
   if (errors.size > 0) return invalidResult(errors);
-  return { valid: true, errors: [], zones, totals, facadeIrradiance,
+  const circuits = emission?.circuits ?? [];
+  if (circuits.some((circuit) => !Object.values(circuit).every(Number.isFinite))) return invalidResult(["calculation"]);
+  return { valid: true, errors: [], zones, totals, facadeIrradiance, circuits,
     solarProfile: { representativeDay: REPRESENTATIVE_DAY, daylightHours: profile.daylightHours, steps: SOLAR_STEPS } };
 }

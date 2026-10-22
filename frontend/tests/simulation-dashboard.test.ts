@@ -34,6 +34,41 @@ function detailValue(card: HeizlastGrundrissCard, label: string) { return [...ca
 afterEach(() => document.body.replaceChildren());
 
 describe("simulation in the existing fixed floorplan", () => {
+  it("shows the confirmed individual loops, pipe size and manifold independently of the scenario", async () => {
+    const { card, callWS } = await mount(false); await press(card, "Simulation");
+    const installation = planningData.underfloor_heating.installation;
+    const details = () => card.shadowRoot!.querySelector(".circuit-details")!.textContent!;
+    expect(details()).toContain("Bestätigte Rohrdimension: 16 × 2 mm");
+    expect(details()).toContain("Heizkreisverteiler EG: Diele");
+    expect(details()).toContain(installation.circuits.filter((circuit) => circuit.zone_id === 5)
+      .map((circuit) => `${circuit.length_m} m`).join(" / "));
+    expect(card.shadowRoot!.querySelectorAll(".circuit-details li")).toHaveLength(5);
+    await press(card, "Obergeschoss");
+    card.shadowRoot!.querySelector<HTMLButtonElement>('[data-shape="og-diele"]')!.click(); await settle(card);
+    expect(details()).toContain("Heizkreisverteiler OG: Ostzimmer");
+    expect(details()).toContain("Kein eigener Heizkreis");
+    expect(card.shadowRoot!.querySelectorAll(".circuit-details li")).toHaveLength(0);
+    expect(detailValue(card, "Mögliche FBH-Leistung")).not.toBe("≈ 0 W");
+    await change(card, "Zusätzliche Hin- und Rückleitung je Kreis gesamt (m)", "0");
+    expect(detailValue(card, "Mögliche FBH-Leistung")).toBe("≈ 0 W");
+    expect(details()).toContain("Geschätzte Zuleitungslänge innerhalb dieser Zone: 0 m");
+    expect(callWS).toHaveBeenCalledExactlyOnceWith({ type: "heizlast_ha/get_project" });
+  });
+
+  it("keeps editable circuit assumptions local across view changes and rejects invalid flow", async () => {
+    const before = JSON.stringify(planningData), { card, callWS } = await mount(false); await press(card, "Simulation");
+    const flow = "Angenommener Durchfluss je Heizkreis (l/min)", length = "Zusätzliche Hin- und Rückleitung je Kreis gesamt (m)";
+    expect(numberInput(card, flow).value).toBe("1.5"); expect(numberInput(card, length).value).toBe("6");
+    const initial = metric(card, "Mögliche FBH-Leistung");
+    await change(card, flow, "0.5"); expect(metric(card, "Mögliche FBH-Leistung")).not.toBe(initial);
+    await change(card, length, "8"); await press(card, "Obergeschoss"); await press(card, "Live"); await press(card, "Simulation");
+    expect(numberInput(card, flow).value).toBe("0.5"); expect(numberInput(card, length).value).toBe("8");
+    await change(card, flow, "-1"); expect(numberInput(card, flow).getAttribute("aria-invalid")).toBe("true");
+    expect(readings(card)).toEqual(Array(6).fill("? / ? / ?"));
+    await change(card, flow, "0"); expect(metric(card, "Mögliche FBH-Leistung")).toBe("≈ 0 W");
+    expect(callWS).toHaveBeenCalledTimes(1); expect(JSON.stringify(planningData)).toBe(before);
+  });
+
   it("explains the assumed calibration and covers both floors without solar at its operating point", async () => {
     const { card, callWS } = await mount(); await press(card, "Simulation");
     expect(content(card)).toContain("Kalibrierannahme für die Startwerte: 22 °C innen bei -9 °C außen und 35 °C Vorlauf");
@@ -259,10 +294,10 @@ describe("simulation in the existing fixed floorplan", () => {
   it("distinguishes documented planning data from adjustable assumptions and shows room-level source values", async () => {
     const { card } = await mount(); await press(card, "Simulation");
     expect(content(card)).toContain("Belegter EnEV-Planungsansatz: Vorlauf 35 °C / Rücklauf 28 °C");
-    expect(content(card)).toContain("Einstellbare Modellannahmen"); expect(content(card)).toContain("angenommenen konstanten spezifischen Durchfluss");
+    expect(content(card)).toContain("Einstellbare Modellannahmen"); expect(content(card)).toContain("angenommenen konstanten Durchfluss");
     expect(content(card)).toContain("Normheizlast: 2.432,3 W"); expect(content(card)).toContain("Fensterbauteilflächen:");
     expect(content(card)).toContain("West 4,141 m²; Süd 14,978 m²; Ost 3,316 m²"); expect(content(card)).toContain("Heizlastberechnung · S. 10 / R5");
-    expect(content(card)).toContain("Angenäherter Rücklauf"); expect(content(card)).toContain("Wärmestromdichte"); expect(content(card)).toContain("Summe Normheizlasten");
+    expect(content(card)).toContain("Kreisrücklauf · Mittel"); expect(content(card)).toContain("Wärmestromdichte"); expect(content(card)).toContain("Summe Normheizlasten");
   });
 
   it("supports keyboard tab navigation and keeps the active panel associated with its tab", async () => {

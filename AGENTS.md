@@ -158,7 +158,7 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
 ### Versionierung und Paketinhalt
 
 - `VERSION` ist die zentrale Projektversion im Format `MAJOR.MINOR.PATCH`,
-  aktuell `0.15.0`. Für eine neue Implementierung die Version nach SemVer
+  aktuell `0.16.0`. Für eine neue Implementierung die Version nach SemVer
   erhöhen. Jeder Merge benötigt eine bisher unveröffentlichte Version für das
   verpflichtende HACS-Release; reine Dokumentationsänderungen erhöhen mindestens
   die Patch-Version. CI-Builds erhalten zusätzlich eine eindeutige Buildkennung.
@@ -346,8 +346,13 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   verändert seine Eingaben nicht. `heat-load.ts` bleibt der HA-Einheitenadapter.
   Es gibt ausschließlich die vorhandene `planning-data.json`; keine Kopie
   von Raumdaten, Konturen, Lasten, Flächen, Fenstern oder Solarfaktoren für
-  die Simulation erzeugen. Unter `underfloor_heating` stehen nur belegte
-  35/28 °C aus EnEV-Nachweis, Seiten 8/10, mit neutralem Quellenbeleg.
+  die Simulation erzeugen. Unter `underfloor_heating` stehen die belegten
+  35/28 °C aus EnEV-Nachweis, Seiten 8/10, mit neutralem Quellenbeleg. Das zusätzliche
+  `installation` enthält ausschließlich bestätigte Benutzerangaben zu einzelnen
+  Raum-Heizkreislängen, Rohrdimension und Verteiler-/Zuleitungszonen, mit einem
+  getrennten neutralen Quellenbeleg `Benutzerangabe`. Zusätzliche Leitungswege,
+  Durchflüsse und Heizstreifenbreiten bleiben Szenarioannahmen im Rechenkern;
+  keine solchen Schätzwerte in den Planungsdatensatz schreiben.
 - Die FBH-Simulation ist eine einstellbare Näherung: logarithmische
   Heizmittelübertemperatur, 80 % aktive Bodenfläche, Exponent 1,1 und
   29 °C maximale Bodenoberfläche. Die Start-Referenzleistung wird aus der
@@ -372,11 +377,38 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   nicht überschreiten; physikalisch unmögliche Referenzpunkte liefern Fehler.
   Die Übertragung des Exponenten auf die Wasserkennlinie ist eine vereinfachende
   Annahme, keine belegte Herstellerkennlinie.
-  Aus Referenzleistung und einstellbarer Referenzspreizung wird ein konstanter
-  spezifischer Durchfluss angenommen; Leistung und aktueller Rücklauf werden
-  gemeinsam gelöst. Bei positivem Heizbetrieb bleibt der Rücklauf oberhalb
-  der Zieltemperatur, bei Vorlauf auf/unter Ziel wird keine Heizleistung
-  behauptet. Eine geänderte Referenzspreizung verändert den angenommenen
+  Mit übergebenen Installationsdaten wird jeder Heizkreis separat über
+  Hinleitung, Raum und Rückleitung gelöst. Startannahmen sind 1,5 l/min
+  konstanter Durchfluss je offenem Kreis und zusätzlich insgesamt 6 m Anbindung
+  je Kreis (3 m hin / 3 m zurück). Beide Werte sind einstellbar und nicht
+  gemessen; Rohrlänge bestimmt keinen Durchfluss ohne Pumpen-/Ventilmodell.
+  Kreise im Verteilerraum behalten die Anbindung dort; alle übrigen
+  Anbindungen werden vereinfachend vollständig der jeweiligen Diele zugeordnet.
+  Der EG-Verteiler liegt in der Diele, der OG-Verteiler im Ostzimmer.
+  Die OG-Diele hat keinen eigenen Kreis; ihre angenommene Heizfläche ist
+  Zuleitungslänge × einstellbare Heizstreifenbreite (Start 0,15 m), gedeckelt
+  auf Planfläche × aktiven Flächenanteil. Diese Breite ist kein belegter
+  Verlegeabstand. Andere Räume behalten den einstellbaren aktiven Flächenanteil.
+  Mehrere Rohrabschnitte teilen sich die aktive Raumfläche proportional zu
+  ihrer Länge. Fläche und Zuleitungswärme werden nicht doppelt bilanziert.
+  Abschnittsleistung und Ausgangstemperatur folgen gemeinsam aus der
+  logarithmischen Kennlinie und Wasserbilanz; der folgende Abschnitt erhält
+  genau diese Temperatur. Wasserannahmen: 1 kg/l, 1,163 Wh/(kg K).
+  Rohrdimension und Längen liefern den Wasserinhalt ohne Speichermodell.
+  Ohne Installationsdaten bleibt für isolierte Aufrufer die bisherige Annahme
+  eines konstanten spezifischen Durchflusses aus Referenzleistung und
+  Referenzspreizung erhalten. Die Dashboardansicht verwendet die Installation.
+  Die Raumoberfläche zeigt den höchsten Segmentwert, die Wärmestromdichte
+  das Flächenmittel und der Rücklauf das Mittel der beteiligten Kreise.
+  Tests prüfen Energie-/Längen-/Volumenerhalt, veränderliche Kreislängen und
+  Zuleitungen, ausschließlich indirekte OG-Dielenwärme, fehlenden Durchfluss,
+  gemeinsame Flächenbegrenzung, Wasser-/Oberflächengrenzen, ungültige
+  Installationsdaten und die Bedienung mit Leserechten.
+  Die Rohrlängen ersetzen keine Kennlinie für Bodenaufbau/Belag oder
+  Verlegeabstand; Wärmeverluste nach unten werden nicht modelliert.
+  Auslegungsspreizung und tatsächliche Kreisrückläufe werden getrennt behandelt.
+  Bei positivem Heizbetrieb bleibt der Rücklauf oberhalb der Zieltemperatur;
+  bei Vorlauf auf/unter Ziel oder Durchfluss null wird keine Heizleistung behauptet. Eine geänderte Referenzspreizung verändert den angenommenen
   Referenzrücklauf; ihre Startwerte kommen aus den belegten Daten.
   Sonnig/bewölkt verwenden deklarierte einstellbare Strahlungswerte bei 45°
   Referenz-Sonnenhöhe. Monatsabhängige Sonnenstände folgen der NOAA-Deklination
