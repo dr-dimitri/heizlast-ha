@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HeizlastGrundrissCard } from "../src/planning-dashboard";
 import { planningData } from "../src/planning-types";
+import { heatLossW } from "../src/thermal-model";
+import { solarGainsW } from "../src/heat-load";
 import { clone, type HassState, type HomeAssistant, type Project } from "../src/types";
 
 const sensor = (id: string, value = "20.7", deviceClass = "temperature"): HassState => ({ entity_id: id, state: value, attributes: { device_class: deviceClass, unit_of_measurement: deviceClass === "temperature" ? "°C" : "%", friendly_name: "Raumsensor" } });
@@ -12,7 +14,7 @@ const empty = (): Project => ({ revision: 4, planning_bindings: {} });
 const text = (card: HeizlastGrundrissCard) => card.shadowRoot!.textContent!;
 async function settle(card: HeizlastGrundrissCard) { await card.updateComplete; await new Promise((resolve) => setTimeout(resolve, 0)); await card.updateComplete; }
 async function mount(snapshot = empty(), admin = true, states: Record<string, HassState> = {}) {
-  const callWS = vi.fn(async (message: Record<string, unknown>): Promise<Project> => message.type === "heizlast_ha/get_project" ? clone(snapshot) : { ...clone(snapshot), revision: snapshot.revision + 1, planning_bindings: clone(message.bindings) as Record<string, string[]> });
+  const callWS = vi.fn(async (message: Record<string, unknown>): Promise<Project> => message.type === "heizlast_ha/get_project" ? clone(snapshot) : { ...clone(snapshot), revision: snapshot.revision + 1, planning_bindings: clone(message.bindings) as Record<string, string[]>, planning_temperatures: clone(message.temperatures) as Record<string, number> });
   const hass = { user: { is_admin: admin }, states, callWS } as HomeAssistant;
   const card = new HeizlastGrundrissCard(); card.hass = hass; document.body.append(card); await settle(card);
   return { card, hass, callWS };
@@ -20,9 +22,102 @@ async function mount(snapshot = empty(), admin = true, states: Record<string, Ha
 function button(card: HeizlastGrundrissCard, label: string): HTMLButtonElement { return [...card.shadowRoot!.querySelectorAll<HTMLButtonElement>("button")].find((value) => value.textContent!.includes(label))!; }
 async function choose(card: HeizlastGrundrissCard, shape: string) { card.shadowRoot!.querySelector<HTMLButtonElement>(`[data-shape="${shape}"]`)!.click(); await settle(card); }
 async function check(card: HeizlastGrundrissCard, value: boolean) { const input = card.shadowRoot!.querySelector<HTMLInputElement>('input[type="checkbox"]')!; input.checked = value; input.dispatchEvent(new Event("change", { bubbles: true })); await settle(card); }
+const fixedInput = (card: HeizlastGrundrissCard) => card.shadowRoot!.querySelector<HTMLInputElement>("#fixed-temperature")!;
+async function setFixed(card: HeizlastGrundrissCard, value: string) { const input = fixedInput(card); input.value = value; input.dispatchEvent(new Event("input", { bubbles: true })); await settle(card); }
 afterEach(() => document.body.replaceChildren());
 
 describe("documented floorplan dashboard", () => {
+  it("offers a fixed temperature below the sensor assignment and saves it for the room", async () => {
+    const { card, callWS } = await mount(empty(), true, { "sensor.weather_actual": outsideSensor() });
+    const assignment = card.shadowRoot!.querySelector(".sensors details")!;
+    expect(assignment.compareDocumentPosition(fixedInput(card)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(fixedInput(card).placeholder).toBe("Nicht vorhanden");
+    await setFixed(card, "22");
+    expect(livingReadings(card)).toBe("22 °C / 2.432,3 W / ≈ 2.432 W");
+    expect(text(card)).toContain("fest eingegeben");
+    await choose(card, "eg_diele"); expect(fixedInput(card).value).toBe("");
+    await setFixed(card, "20"); await choose(card, "eg_wohnen");
+    expect(fixedInput(card).value).toBe("22");
+    button(card, "Änderungen speichern").click(); await settle(card);
+    expect(callWS).toHaveBeenLastCalledWith({ type: "heizlast_ha/save_planning_bindings", revision: 4, bindings: {}, temperatures: { "4": 20, "5": 22 } });
+    expect(button(card, "Änderungen speichern")).toBeUndefined();
+  });
+  it("clears the manual value when a sensor is selected and never revives it after removal or failure", async () => {
+    const snapshot = { ...empty(), planning_temperatures: { "5": 22 } };
+    const { card, hass, callWS } = await mount(snapshot, true, { "sensor.room": sensor("sensor.room"), "sensor.weather_actual": outsideSensor() });
+    expect(fixedInput(card).value).toBe("22");
+    await check(card, true);
+    expect(fixedInput(card).value).toBe(""); expect(fixedInput(card).disabled).toBe(true);
+    expect(livingReadings(card)).toContain("20,7 °C");
+    card.hass = { ...hass, states: { "sensor.room": sensor("sensor.room", "unavailable"), "sensor.weather_actual": outsideSensor() } }; await settle(card);
+    expect(livingReadings(card)).toBe("? / 2.432,3 W / ?");
+    await check(card, false);
+    expect(fixedInput(card).disabled).toBe(false); expect(fixedInput(card).value).toBe("");
+    expect(livingReadings(card)).toBe("? / 2.432,3 W / ?");
+    button(card, "Änderungen speichern").click(); await settle(card);
+    expect(callWS).toHaveBeenLastCalledWith({ type: "heizlast_ha/save_planning_bindings", revision: 4, bindings: { "5": [] }, temperatures: {} });
+  });
+  it("shows saved fixed temperatures to readers, including zero, and allows explicit clearing", async () => {
+    const snapshot = { ...empty(), planning_temperatures: { "5": 0 } };
+    const { card, callWS } = await mount(snapshot, false, { "sensor.weather_actual": outsideSensor() });
+    expect(fixedInput(card).value).toBe("0"); expect(fixedInput(card).disabled).toBe(true);
+    expect(livingReadings(card)).toContain("0 °C");
+    await setFixed(card, "20"); expect(callWS).toHaveBeenCalledTimes(1); expect(livingReadings(card)).toContain("0 °C");
+    const editable = await mount(snapshot);
+    await setFixed(editable.card, "");
+    expect(livingReadings(editable.card)).toBe("? / 2.432,3 W / ?");
+    button(editable.card, "Änderungen speichern").click(); await settle(editable.card);
+    expect(editable.callWS).toHaveBeenLastCalledWith({ type: "heizlast_ha/save_planning_bindings", revision: 4, bindings: {}, temperatures: {} });
+  });
+  it("rejects invalid fixed temperatures across room changes and restores discarded edits", async () => {
+    const { card, callWS } = await mount({ ...empty(), planning_temperatures: { "5": 22 } });
+    await setFixed(card, "-274");
+    expect(fixedInput(card).getAttribute("aria-invalid")).toBe("true");
+    expect(livingReadings(card)).toBe("? / 2.432,3 W / ?");
+    expect(button(card, "Änderungen speichern").disabled).toBe(true);
+    await choose(card, "eg_diele"); await setFixed(card, "20");
+    expect(button(card, "Änderungen speichern").disabled).toBe(true);
+    button(card, "Änderungen verwerfen").click(); await settle(card);
+    await choose(card, "eg_wohnen"); expect(fixedInput(card).value).toBe("22");
+    expect(callWS).toHaveBeenCalledTimes(1);
+  });
+  it("retains fixed drafts after write failures and reloads them on conflicts", async () => {
+    const { card, callWS } = await mount(); await setFixed(card, "21.5");
+    callWS.mockRejectedValueOnce({ code: "storage_error" });
+    button(card, "Änderungen speichern").click(); await settle(card);
+    expect(fixedInput(card).value).toBe("21.5"); expect(text(card)).toContain("nicht gespeichert");
+    callWS.mockRejectedValueOnce({ code: "conflict" });
+    button(card, "Änderungen speichern").click(); await settle(card); expect(fixedInput(card).disabled).toBe(true);
+    callWS.mockResolvedValueOnce({ ...empty(), revision: 10, planning_temperatures: { "5": 23 } });
+    button(card, "Aktuelle Zuordnungen laden").click(); await settle(card);
+    expect(fixedInput(card).value).toBe("23"); expect(fixedInput(card).disabled).toBe(false);
+  });
+  it("sums unrounded current room loads per floor with sensor precedence and solar correction", async () => {
+    const snapshot = { ...empty(), planning_temperatures: Object.fromEntries(planningData.zones.map((zone) => [zone.id, zone.temperature])), planning_bindings: { "5": ["sensor.room"] } };
+    const states = { "sensor.room": sensor("sensor.room", "21.7"), "sensor.weather_actual": outsideSensor(), "sensor.sunlight": facadeRadiationSensor() };
+    const { card, hass } = await mount(snapshot, false, states);
+    const total = () => card.shadowRoot!.querySelector(".current-floor-load")!;
+    for (const floor of ["EG", "OG"] as const) {
+      button(card, floor === "EG" ? "Erdgeschoss" : "Obergeschoss").click(); await settle(card);
+      const zones = planningData.zones.filter((zone) => zone.floor === floor);
+      const expected = zones.reduce((sum, zone) => sum + Math.max(0, heatLossW(zone, zone.id === 5 ? 21.7 : zone.temperature, -12.2, planningData.building.design_outdoor_temperature_c)! - solarGainsW(zone, states["sensor.sunlight"], planningData.solar_assumptions)!), 0);
+      expect(total().querySelector("strong")!.textContent).toBe(`≈ ${new Intl.NumberFormat("de-DE", { maximumFractionDigits: 0 }).format(expected)} W`);
+      expect(total().textContent).toContain(`Summe aktuelle Heizlast ${floor}`);
+      expect(total().textContent).toContain(`${zones.length} / ${zones.length} Rechenzonen berechenbar`);
+    }
+    card.hass = { ...hass, states: { ...states, "sensor.weather_actual": outsideSensor("40") } }; await settle(card);
+    expect(total().querySelector("strong")!.textContent).toBe("≈ 0 W");
+    card.hass = { ...hass, states: {} }; await settle(card);
+    expect(total().querySelector("strong")!.textContent).toBe("?");
+  });
+  it("marks incomplete floor totals unknown instead of silently summing missing rooms as zero", async () => {
+    const { card } = await mount({ ...empty(), planning_temperatures: { "5": 22 } }, false, { "sensor.weather_actual": outsideSensor() });
+    const total = card.shadowRoot!.querySelector(".current-floor-load")!;
+    expect(total.querySelector("strong")!.textContent).toBe("?");
+    expect(total.textContent).toContain("1 / 5 Rechenzonen berechenbar");
+    button(card, "Obergeschoss").click(); await settle(card);
+    expect(total.textContent).toContain("0 / 6 Rechenzonen berechenbar");
+  });
   it("renders only actual EG/OG planning data, separated from absent sensor readings", async () => {
     const { card, callWS } = await mount();
     expect(callWS).toHaveBeenCalledExactlyOnceWith({ type: "heizlast_ha/get_project" });
@@ -248,11 +343,11 @@ describe("documented floorplan dashboard", () => {
     const snapshot = empty();
     const { card, callWS } = await mount(snapshot, true, { "sensor.room": sensor("sensor.room"), "sensor.humidity": sensor("sensor.humidity", "55", "humidity") });
     expect(card.shadowRoot!.querySelectorAll('input[type="checkbox"]')).toHaveLength(1); await check(card, true); await choose(card, "eg_diele"); await choose(card, "eg_wohnen");
-    expect(card.shadowRoot!.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true); button(card, "Zuordnungen speichern").click(); await settle(card);
-    expect(callWS).toHaveBeenLastCalledWith({ type: "heizlast_ha/save_planning_bindings", revision: 4, bindings: { "5": ["sensor.room"] } });
+    expect(card.shadowRoot!.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true); button(card, "Änderungen speichern").click(); await settle(card);
+    expect(callWS).toHaveBeenLastCalledWith({ type: "heizlast_ha/save_planning_bindings", revision: 4, bindings: { "5": ["sensor.room"] }, temperatures: {} });
     expect(text(card)).toContain("in Home Assistant gespeichert"); expect(text(card)).not.toContain("Ungespeicherte Sensorzuordnungen");
-    await check(card, false); button(card, "Zuordnungen speichern").click(); await settle(card);
-    expect(callWS).toHaveBeenLastCalledWith({ type: "heizlast_ha/save_planning_bindings", revision: 5, bindings: { "5": [] } });
+    await check(card, false); button(card, "Änderungen speichern").click(); await settle(card);
+    expect(callWS).toHaveBeenLastCalledWith({ type: "heizlast_ha/save_planning_bindings", revision: 5, bindings: { "5": [] }, temperatures: {} });
   });
   it("shows readonly sensor values without assignment controls", async () => {
     const snapshot = empty(); snapshot.planning_bindings = { "5": ["sensor.room"] }; const { card, callWS } = await mount(snapshot, false, { "sensor.room": sensor("sensor.room") });
@@ -261,16 +356,16 @@ describe("documented floorplan dashboard", () => {
   });
   it("reloads after a revision conflict and retries with the current revision", async () => {
     const { card, callWS } = await mount(empty(), true, { "sensor.room": sensor("sensor.room") }); await check(card, true); callWS.mockRejectedValueOnce({ code: "conflict" });
-    button(card, "Zuordnungen speichern").click(); await settle(card); expect(text(card)).toContain("zwischenzeitlich geändert"); expect(card.shadowRoot!.querySelector<HTMLInputElement>('input[type="checkbox"]')!.disabled).toBe(true);
+    button(card, "Änderungen speichern").click(); await settle(card); expect(text(card)).toContain("zwischenzeitlich geändert"); expect(card.shadowRoot!.querySelector<HTMLInputElement>('input[type="checkbox"]')!.disabled).toBe(true);
     callWS.mockResolvedValueOnce({ ...empty(), revision: 9 }); button(card, "Aktuelle Zuordnungen laden").click(); await settle(card);
     expect(text(card)).not.toContain("zwischenzeitlich geändert"); expect(card.shadowRoot!.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(false);
-    await check(card, true); button(card, "Zuordnungen speichern").click(); await settle(card);
-    expect(callWS).toHaveBeenLastCalledWith({ type: "heizlast_ha/save_planning_bindings", revision: 9, bindings: { "5": ["sensor.room"] } });
+    await check(card, true); button(card, "Änderungen speichern").click(); await settle(card);
+    expect(callWS).toHaveBeenLastCalledWith({ type: "heizlast_ha/save_planning_bindings", revision: 9, bindings: { "5": ["sensor.room"] }, temperatures: {} });
   });
   it("retains the draft after failed save and keeps source data visible when loading fails", async () => {
     const { card, callWS } = await mount(empty(), true, { "sensor.room": sensor("sensor.room") }); await check(card, true); callWS.mockRejectedValueOnce(new Error("offline"));
-    button(card, "Zuordnungen speichern").click(); await settle(card); expect(text(card)).toContain("nicht gespeichert"); expect(card.shadowRoot!.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true);
-    button(card, "Zuordnungen speichern").click(); await settle(card); expect(text(card)).toContain("in Home Assistant gespeichert");
+    button(card, "Änderungen speichern").click(); await settle(card); expect(text(card)).toContain("nicht gespeichert"); expect(card.shadowRoot!.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true);
+    button(card, "Änderungen speichern").click(); await settle(card); expect(text(card)).toContain("in Home Assistant gespeichert");
     const failed = new HeizlastGrundrissCard(); failed.hass = { states: {}, user: { is_admin: true }, callWS: vi.fn().mockRejectedValue(new Error("offline")) }; document.body.append(failed); await settle(failed);
     expect(text(failed)).toContain("Planungsdaten bleiben sichtbar"); expect(failed.shadowRoot!.querySelector(".heat-value")).not.toBeNull(); expect(failed.shadowRoot!.querySelector('input[type="checkbox"]')).toBeNull();
   });

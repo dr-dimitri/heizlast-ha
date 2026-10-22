@@ -1,6 +1,7 @@
-"""Validate sensor assignments for the bundled residential calculation zones."""
+"""Validate temperature settings for the bundled residential calculation zones."""
 
 import re
+import sys
 from collections.abc import Callable, Mapping
 from typing import Any
 
@@ -29,6 +30,26 @@ def is_temperature_state(entity_id: str, state: Any) -> bool:
 # These IDs are the stable calculation zones of the fixed residential floor plan.
 PLANNING_ZONE_IDS = frozenset(str(zone_id) for zone_id in range(1, 12))
 SENSOR_ENTITY_ID = re.compile(r"sensor\.[a-z0-9_]+\Z")
+
+
+def validate_planning_temperatures(temperatures: Any) -> dict[str, float]:
+    """Accept explicit Celsius values only for the fixed calculation zones."""
+    if not isinstance(temperatures, dict):
+        raise ProjectError(
+            "planning_temperatures: Temperaturen müssen ein Objekt sein."
+        )
+    for zone_id, value in temperatures.items():
+        if zone_id not in PLANNING_ZONE_IDS:
+            raise ProjectError("planning_temperatures: Unbekannte Rechenzone.")
+        if (
+            type(value) not in (int, float)
+            or not -273.15 <= value <= sys.float_info.max
+        ):
+            raise ProjectError(
+                f"planning_temperatures.{zone_id}: Eine endliche Temperatur "
+                "ab −273,15 °C eingeben."
+            )
+    return dict(temperatures)
 
 
 def validate_planning_bindings(

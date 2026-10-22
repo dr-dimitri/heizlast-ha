@@ -2,6 +2,7 @@ export type Point = [number, number];
 export interface Project {
   revision: number;
   planning_bindings: Record<string, string[]>;
+  planning_temperatures?: Record<string, number>;
 }
 export interface HassState {
   entity_id: string;

@@ -15,6 +15,7 @@ from .planning import (
     ProjectError,
     is_temperature_state,
     validate_planning_bindings,
+    validate_planning_temperatures,
 )
 
 
@@ -35,7 +36,7 @@ def _verify_saved_project(path: str, expected: JsonObject) -> None:
 
 
 class Project:
-    """Persistent sensors for fixed calculation zones, preserving inactive old data."""
+    """Persistent room settings, preserving inactive old data."""
 
     def __init__(self, hass: HomeAssistant) -> None:
         """Initialize storage; setup loads data before making APIs available."""
@@ -83,6 +84,13 @@ class Project:
                 stored["planning_bindings"],
                 lambda _: False,
             )
+        temperatures = validate_planning_temperatures(
+            stored.get("planning_temperatures", {})
+        )
+        if any(stored.get("planning_bindings", {}).get(key) for key in temperatures):
+            raise ProjectError(
+                "Gespeicherte Temperatur und Sensorzuordnung kollidieren."
+            )
         self.data = deepcopy(stored)
 
     def snapshot(self) -> JsonObject:
@@ -91,6 +99,9 @@ class Project:
         return {
             "revision": self.data["revision"],
             "planning_bindings": deepcopy(self.data.get("planning_bindings", {})),
+            "planning_temperatures": deepcopy(
+                self.data.get("planning_temperatures", {})
+            ),
         }
 
     def _ensure_active(self) -> None:
@@ -109,8 +120,9 @@ class Project:
         self,
         revision: int,
         bindings: Any,
+        temperatures: Any = None,
     ) -> JsonObject:
-        """Persist calculation-zone sensors, leaving any inactive legacy data intact."""
+        """Persist room settings, leaving any inactive legacy data intact."""
         async with self.lock:
             self._ensure_active()
             if type(revision) is not int or revision != self.data["revision"]:
@@ -127,8 +139,20 @@ class Project:
                 ),
             )
             candidate = deepcopy(self.data)
+            checked_temperatures = validate_planning_temperatures(
+                self.data.get("planning_temperatures", {})
+                if temperatures is None
+                else temperatures
+            )
+            # A sensor selection permanently clears the manual value, even offline.
+            checked_temperatures = {
+                key: value
+                for key, value in checked_temperatures.items()
+                if not checked.get(key)
+            }
             candidate["revision"] += 1
             candidate["planning_bindings"] = checked
+            candidate["planning_temperatures"] = checked_temperatures
             await self._async_persist(candidate)
             return self.snapshot()
 

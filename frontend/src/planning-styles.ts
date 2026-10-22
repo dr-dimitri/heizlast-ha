@@ -31,6 +31,8 @@ export const planningStyles = css`
   .floor-tabs { display:flex; background:var(--subtle); border:1px solid var(--line); border-radius:12px; padding:4px; gap:4px; }
   .floor-tabs button { border-color:transparent; background:transparent; color:var(--muted); padding:9px 17px; }
   .floor-tabs button[aria-pressed=true] { background:var(--surface); color:var(--accent); border-color:var(--line); font-weight:650; }
+  .floor-totals { display:flex; flex-wrap:wrap; gap:8px 18px; }
+  .floor-total small { display:block; margin-top:3px; font-size:10px; }
   .floor-total { font-size:12px; color:var(--muted); }
   .floor-total strong { color:var(--primary-text-color); margin-left:5px; font-variant-numeric:tabular-nums; }
   .workspace { display:grid; grid-template-columns:minmax(0,1fr) 290px; gap:18px; align-items:start; }
@@ -110,6 +112,11 @@ export const planningStyles = css`
   .sensor-select label { display:flex; align-items:start; gap:8px; font-size:12px; line-height:1.4; padding:8px 0; }
   .sensor-select input { margin:3px 0 0; accent-color:var(--accent); width:17px; height:17px; }
   .sensor-filter { display:block; width:100%; border:1px solid var(--line); border-radius:8px; padding:9px; margin-top:10px; color:var(--primary-text-color); background:var(--surface); }
+  .fixed-temperature { margin-top:16px; }
+  .fixed-temperature label { display:block; font-size:12px; margin-bottom:7px; }
+  .fixed-temperature input { width:100%; border:1px solid var(--line); border-radius:8px; padding:9px; color:var(--primary-text-color); background:var(--surface); }
+  .fixed-temperature input[aria-invalid=true] { border-color:var(--error-color,#db4437); }
+  .fixed-temperature input:disabled { opacity:.65; }
   .actions { display:flex; gap:7px; flex-wrap:wrap; margin-top:10px; }
   .actions button { font-size:11px; padding:8px 10px; }
   .actions .primary { color:var(--text-primary-color,#fff); background:var(--accent); border-color:var(--accent); }
