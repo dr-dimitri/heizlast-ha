@@ -45,9 +45,46 @@ describe("hourly day simulation in the fixed floor plan", () => {
     card.shadowRoot!.querySelectorAll<SVGElement>(".chart-hit")[12].dispatchEvent(new MouseEvent("click", { bubbles: true })); await settle(card);
     expect(card.shadowRoot!.querySelector<HTMLSelectElement>('select[aria-label="Stunde im Grundriss"]')!.value).toBe("12");
     expect(card.shadowRoot!.querySelector(".curve-summary")!.textContent).toContain("10 °C");
-    expect(content(card)).toContain("Wärmebedarf am Tag");
+    expect(content(card)).toContain("Gebäudewärmebedarf am Tag");
     expect(content(card)).toContain("Raumtemperatur aus Live");
     expect(callWS.mock.calls.map(([message]) => message.type)).toEqual(["heizlast_ha/get_project", "heizlast_ha/get_weather"]);
+  });
+
+  it("separates the building energy balance in the chart and gas estimate from room and FBH design loads", async () => {
+    const project = { ...snapshot(), gas_price_ct_per_kwh: 12.5,
+      planning_temperatures: Object.fromEntries(planningData.zones.map((zone) => [zone.id, zone.temperature])) };
+    const data = forecast();
+    data.days[0].hours = data.days[0].hours.map((hour) => ({ ...hour,
+      outdoorTemperatureC: planningData.building.design_outdoor_temperature_c,
+      globalIrradianceWPerM2: 0, facadeIrradiance: { N: 0, E: 0, S: 0, W: 0 } }));
+    const { card } = await mount(project, data); await press(card, "Simulation");
+    const number = (value: number, digits = 0) => new Intl.NumberFormat("de-DE", { maximumFractionDigits: digits }).format(value);
+    const building = planningData.building.heat_load_w, roomSum = planningData.zones.reduce((sum, zone) => sum + zone.load, 0);
+    expect(card.shadowRoot!.querySelector(".load-label")!.textContent).toBe("Gebäudeheizlast (W)");
+    expect(card.shadowRoot!.querySelector(".chart-legend")!.textContent).toContain("Gebäudeheizlast · linke Achse");
+    expect(card.shadowRoot!.querySelector(".building-heat-demand")!.textContent).toBe(`≈ ${number(building)} W`);
+    expect(card.shadowRoot!.querySelector(".room-heat-demand")!.textContent).toBe(`≈ ${number(roomSum)} W`);
+    expect(card.shadowRoot!.querySelector(".building-day-energy")!.textContent).toBe(`≈ ${number(building * 24 / 1000, 1)} kWh`);
+    expect(card.shadowRoot!.querySelector(".gas-energy")!.textContent).toBe(`≈ ${number(building * 24 / 1000 / .95, 1)} kWh`);
+    const title = card.shadowRoot!.querySelector(".heating-chart title")!.textContent!;
+    expect(title).toContain(`Gebäudeheizlast ${Math.round(building)} W`);
+    expect(title).not.toContain(`Gebäudeheizlast ${Math.round(roomSum)} W`);
+    expect(content(card)).toContain("Raumheizlast EG");
+    expect(card.shadowRoot!.querySelector(".building-balance")!.textContent).toContain("hälftige Lüftungsverluste");
+  });
+
+  it("explains zero building demand while the conservative room calculation still requires heat", async () => {
+    const project = snapshot(); project.planning_temperatures!["8"] = 20;
+    const data = forecast();
+    data.days[0].hours[0] = { ...data.days[0].hours[0], outdoorTemperatureC: 20,
+      globalIrradianceWPerM2: 1000, facadeIrradiance: { N: 65, E: 1000, S: 1000, W: 1000 } };
+    const hour = simulateHeatingDay(planningData, data.days[0].hours, project.planning_temperatures!).hours[0];
+    expect(hour.heatDemandW).toBe(0); expect(hour.roomHeatDemandW).toBeGreaterThan(0);
+    const { card } = await mount(project, data); await press(card, "Simulation");
+    expect(card.shadowRoot!.querySelector(".building-heat-demand")!.textContent).toBe("≈ 0 W");
+    expect(card.shadowRoot!.querySelector(".building-off")!.textContent).toContain("keinen Heizbedarf");
+    expect(card.shadowRoot!.querySelector(".building-off")!.textContent).toContain("konservativen Raumauslegung");
+    expect(card.shadowRoot!.querySelector(".room-heat-demand")!.textContent).not.toBe("≈ 0 W");
   });
 
   it("uses selected hour in rooms, preserves date and hour across floors and views, and supports read-only users", async () => {

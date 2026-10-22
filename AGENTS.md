@@ -159,7 +159,7 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
 ### Versionierung und Paketinhalt
 
 - `VERSION` ist die zentrale Projektversion im Format `MAJOR.MINOR.PATCH`,
-  aktuell `0.20.0`. Für eine neue Implementierung die Version nach SemVer
+  aktuell `0.21.0`. Für eine neue Implementierung die Version nach SemVer
   erhöhen. Jeder Merge benötigt eine bisher unveröffentlichte Version für das
   verpflichtende HACS-Release; reine Dokumentationsänderungen erhöhen mindestens
   die Patch-Version. CI-Builds erhalten zusätzlich eine eindeutige Buildkennung.
@@ -440,6 +440,29 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   Gebäudedaten, Konturen, Lasten, Flächen, Fenster, Solarfaktoren, belegter
   Vorlauf/Rücklauf und bestätigte Installation werden ausschließlich aus der
   bestehenden `planning-data.json` gelesen. Keine Kopie für die Simulation anlegen.
+- Die Tagesenergie, Diagramm-Gebäudeheizlast und Gas-/WP-/Kostenvergleiche
+  verwenden eine getrennte Gebäudebilanz: je Zone
+  `(transmission + 0,5 × ventilation) × Rundungsfaktor`, mit
+  `Rundungsfaktor = building.heat_load_w / Summe(transmission + 0,5 × ventilation)`.
+  Die hälftige Lüftung folgt der belegten Gebäudeheizlastberechnung; der Faktor
+  gleicht ausschließlich Quellenrundung aus und ist keine Verbrauchskalibrierung.
+  Jeden Beitrag mit der jeweiligen Live-Raumtemperatur und Normdifferenz
+  skalieren, unveränderte solare Gewinne dieser Zone abziehen, auf null
+  begrenzen und erst danach summieren. Keine pauschale Skalierung der bereits
+  solarbereinigten Raumlastsumme und kein Solarübertrag zwischen Räumen/Stunden.
+  Am solarfreien Normpunkt muss die Bilanz exakt die belegte Gebäudenormlast
+  ergeben. Fehlende/ungültige Gebäudeanteile bleiben unbekannt, ohne Ersatz
+  durch Raumlasten. `HeatingHour.heatDemandW` ist der Gebäudebedarf;
+  `roomHeatDemandW`, Zonenwerte und Vorlaufsuche behalten die konservative
+  Raumrechnung mit voller Lüftung. Die UI kennzeichnet beide Bezugsgrößen.
+  Gebäude-Nullbedarf ergibt null Gas-/WP-Energie auch bei positivem
+  Raumprüfbedarf. Die COP-Schätzung nutzt weiterhin den konservativen Vorlauf;
+  sonstige Datenlücken und nicht erreichbarer Vorlauf bleiben unbekannt.
+  Interne Gewinne, Wärmespeicherung und tatsächliche Lüftung werden nicht
+  erfunden. Das Ergebnis bleibt eine stationäre Raumheizungsschätzung ohne
+  Warmwasser und Verbrauchskalibrierung. Tests prüfen Normpunkt, individuelle
+  Temperaturen, Lüftungsanteile, Quellenrundung, lokale Solarbegrenzung,
+  Lücken/Nullbedarf und die Gebäudebasis von Gas-/WP-Energie und Kosten.
 - `simulateHeatingDay` berechnet vollständige Wettertage in Stundenschritten.
   `get_weather` liefert den gemeinsamen bereinigten Arbeitsspeicher-Cache über
   einen authentifizierten Leseendpunkt, auch mit Leserechten und ohne zusätzliche

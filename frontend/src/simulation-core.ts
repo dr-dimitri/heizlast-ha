@@ -1,6 +1,6 @@
 import {
-  heatLossW, solarGainsFromFacadesW,
-  type FacadeOrientation, type HeatLossZone, type SolarFactors, type SolarZone,
+  buildingDesignHeatLossZones, heatLossW, solarGainsFromFacadesW,
+  type BuildingHeatLossZone, type FacadeOrientation, type HeatLossZone, type SolarFactors, type SolarZone,
 } from "./thermal-model";
 
 export interface SimulationScenario {
@@ -39,7 +39,7 @@ export interface HeatingInstallation {
   circuits: ReadonlyArray<{ zone_id: number; length_m: number }>;
 }
 
-export interface SimulationZone extends HeatLossZone, SolarZone {
+export interface SimulationZone extends HeatLossZone, BuildingHeatLossZone, SolarZone {
   id: number;
   name: string;
   floor: "EG" | "OG";
@@ -49,7 +49,7 @@ export interface SimulationZone extends HeatLossZone, SolarZone {
 /** Accept the original planning objects structurally, without loading a data file. */
 export interface SimulationPlanningData {
   zones: ReadonlyArray<SimulationZone>;
-  building: { design_outdoor_temperature_c: number };
+  building: { design_outdoor_temperature_c: number; heat_load_w?: number };
   solar_assumptions: SolarFactors;
   underfloor_heating: {
     design_supply_temperature_c: number;
@@ -577,7 +577,10 @@ export interface HeatingHour {
   status: "covered" | "off" | "unreachable" | "missing_weather" | "missing_temperature" | "invalid_model";
   outdoorTemperatureC: number | null;
   globalIrradianceWPerM2: number | null;
+  /** Building energy balance: documented building load, half ventilation and room-local solar gains. */
   heatDemandW: number | null;
+  /** Conservative sum used for room sizing and required supply inversion, not building energy. */
+  roomHeatDemandW: number | null;
   requiredSupplyTemperatureC: number | null;
   zones: ZoneSimulationResult[];
   circuits: CircuitSimulationResult[];
@@ -612,10 +615,11 @@ export function simulateHeatingDay(data: SimulationPlanningData, weather: Readon
   const invalid = validationErrors(data, probe, parameters, { latitudeDeg: 0 }).size > 0 || !data.underfloor_heating.installation;
   const fixed = invalid ? parameters : defaultSimulationParameters(data);
   const roomTemperatures = temperatures as Readonly<Record<number, number>>;
+  const buildingZones = buildingDesignHeatLossZones(data.zones, data.building.heat_load_w);
   const emptyHour = (sample: HourlyWeather, status: HeatingHour["status"]): HeatingHour => ({
     time: sample.time, status, outdoorTemperatureC: finiteNumber(sample.outdoorTemperatureC) ? sample.outdoorTemperatureC : null,
     globalIrradianceWPerM2: finiteNumber(sample.globalIrradianceWPerM2) ? sample.globalIrradianceWPerM2 : null,
-    heatDemandW: null, requiredSupplyTemperatureC: null, zones: [], circuits: [],
+    heatDemandW: null, roomHeatDemandW: null, requiredSupplyTemperatureC: null, zones: [], circuits: [],
   });
   const invalidFixed = invalid || validationErrors(data, probe, fixed, { latitudeDeg: 0 }).size > 0;
   const minimumRoomTemperature = Math.min(...data.zones.map((zone) => roomTemperatures[zone.id]));
@@ -635,6 +639,13 @@ export function simulateHeatingDay(data: SimulationPlanningData, weather: Readon
     if (demands.some((value) => value === null)) return emptyHour(sample, "missing_weather");
     const known = demands as { loss: number; solar: number; demand: number }[];
     const totalDemand = known.reduce((sum, value) => sum + value.demand, 0);
+    // Energy uses the building ventilation convention; the FBH still covers every conservative room load.
+    const buildingDemands = buildingZones?.map((zone, index) => {
+      const loss = heatLossW(zone, temperatures[data.zones[index].id], sample.outdoorTemperatureC, data.building.design_outdoor_temperature_c);
+      return loss === null ? null : Math.max(0, loss - known[index].solar);
+    });
+    const buildingDemand = buildingDemands && buildingDemands.every((value) => value !== null)
+      ? buildingDemands.reduce((sum, value) => sum + value!, 0) : null;
     const emission = (supplyTemperatureC: number) => circuitEmission(data, { ...probe, supplyTemperatureC }, fixed, roomTemperatures);
     const covers = (value: ReturnType<typeof emission>) => data.zones.every((zone, index) => value.zones.get(zone.id)!.heatingPowerW + 1e-7 >= known[index].demand);
     let supply = MAX_REQUIRED_SUPPLY_C;
@@ -663,9 +674,11 @@ export function simulateHeatingDay(data: SimulationPlanningData, weather: Readon
         peakSolarGainsW: value.solar, peakDeficitW: Math.max(0, value.demand - output.heatingPowerW) };
     });
     if (!Number.isFinite(totalDemand) || zones.some((zone) => !Object.values(zone).every(Number.isFinite))) return emptyHour(sample, "invalid_model");
-    return { ...emptyHour(sample, status), heatDemandW: totalDemand,
+    return { ...emptyHour(sample, status), heatDemandW: buildingDemand !== null && Number.isFinite(buildingDemand) ? buildingDemand : null,
+      roomHeatDemandW: totalDemand,
       requiredSupplyTemperatureC: status === "covered" ? supply : null, zones, circuits: model.circuits };
   });
-  return { hours, missingZoneIds, heatEnergyKWh: hours.length && hours.every((hour) => hour.heatDemandW !== null)
-    ? hours.reduce((sum, hour) => sum + hour.heatDemandW!, 0) / 1000 : null };
+  const energy = hours.length && hours.every((hour) => hour.heatDemandW !== null)
+    ? hours.reduce((sum, hour) => sum + hour.heatDemandW! / 1000, 0) : null;
+  return { hours, missingZoneIds, heatEnergyKWh: energy !== null && Number.isFinite(energy) ? energy : null };
 }

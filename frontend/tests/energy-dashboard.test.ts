@@ -16,7 +16,7 @@ const tariffStates = (): Record<string, HassState> => ({
 });
 function day(date = "2026-10-22"): HeatingDay {
   const hours: HeatingHour[] = [10, 11].map((hour) => ({ time: `${date}T${hour}:00:00Z`, status: "covered", outdoorTemperatureC: 2,
-    globalIrradianceWPerM2: 0, heatDemandW: 2910, requiredSupplyTemperatureC: 35, zones: [], circuits: [] }));
+    globalIrradianceWPerM2: 0, heatDemandW: 2910, roomHeatDemandW: 4500, requiredSupplyTemperatureC: 35, zones: [], circuits: [] }));
   return { hours, heatEnergyKWh: 5.82, missingZoneIds: [] };
 }
 const pvFor = (start: string, energy = .5) => ({ status: "available", fetched_at: "2026-10-22T10:00:00Z", expires_at: "2026-10-22T11:00:00Z",
@@ -51,11 +51,12 @@ const euro = (value: number) => `≈ ${new Intl.NumberFormat("de-DE", { style: "
 afterEach(() => { document.body.replaceChildren(); vi.useRealTimers(); });
 
 describe("energy comparison dashboard", () => {
-  it("shows saved Bosch settings and equal-heat gas, grid and PV costs to readers without writing", async () => {
+  it("prices building heat rather than the higher room design demand for gas, grid and PV without writing", async () => {
     const { card, callWS } = await mount();
     expect(input(card, "Wärmeerzeuger").value).toBe("bosch_aw5800_5");
     expect([...card.shadowRoot!.querySelectorAll("select")].every((field) => field.disabled)).toBe(true);
     expect(content(card)).toContain("Leserechten");
+    expect(content(card)).toContain("Gebäudewärmebedarf für Raumheizung");
     expect(text(card, ".comparison-gas-cost")).toBe(euro(5.82 / .95 * .1));
     expect(text(card, ".grid-only-cost")).toBe(euro(.8));
     expect(text(card, ".heat-pump-cost")).toBe(euro(.48));
@@ -133,7 +134,7 @@ describe("energy comparison dashboard", () => {
     expect(text(card, ".comparison-gas-cost")).toBe(euro(8.91 / .95 * .1));
     card.selectedHour = 0; await settle(card);
     expect(text(card, ".hour-status")).toContain("Bedarf gedeckt"); expect(text(card, ".hour-status")).toContain("2,91");
-    const off = day(); off.hours[1] = { ...off.hours[1], status: "off", heatDemandW: 0, requiredSupplyTemperatureC: null };
+    const off = day(); off.hours[1] = { ...off.hours[1], heatDemandW: 0 };
     card.day = off; card.selectedHour = 1; await settle(card);
     expect(text(card, ".hour-status")).toContain("Heizung aus"); expect(text(card, ".hour-status")).toContain("≈ 0 kWh");
   });
