@@ -17,6 +17,7 @@ let hass: HomeAssistant = {
   user: { is_admin: !readOnly }, states: {},
   async callWS<T>(message: Record<string, unknown>): Promise<T> {
     if (message.type === "heizlast_ha/get_project") return clone(project) as T;
+    if (message.type === "heizlast_ha/get_weather") return { timezone: "UTC", fetched_at: null, days: [] } as T;
     if (readOnly) throw { code: "unauthorized" };
     if (message.revision !== project.revision) throw { code: "conflict" };
     if (message.type === "heizlast_ha/save_planning_bindings") {

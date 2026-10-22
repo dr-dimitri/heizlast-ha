@@ -1,7 +1,7 @@
 # heizlast-ha
 
 Home-Assistant-Integration mit einer interaktiven digitalen Grundrisskarte.
-Version **0.14.0** öffnet den fest implementierten Grundriss direkt in der
+Version **0.18.0** öffnet den fest implementierten Grundriss direkt in der
 HA-Seitenleiste. Erdgeschoss und Obergeschoss zeigen die aus den Werkplänen
 übernommenen Raumkonturen und die belegten Normheizlasten von elf Rechenzonen.
 Räume lassen sich anklicken; rechts stehen Fläche, Auslegungstemperatur,
@@ -21,18 +21,18 @@ Strahlungsdaten vorliegen, werden solare Gewinne nach den belegten
 EnEV-Annahmen abgezogen. Das Ergebnis ist mit **≈** gekennzeichnet. Fehlende oder mehrdeutige Temperaturen ergeben **?**.
 Eine Heizungssteuerung ist nicht enthalten.
 
-Im zusätzlichen Tab **Simulation** lassen sich Vorlauf, gewünschte
-Innentemperatur, Außentemperatur, **Monat** und **sonnig/bewölkt** verändern. Die
-Simulation berücksichtigt den jahreszeitlichen Sonnenlauf und die Nachtstunden.
-Live-Ansicht und Simulation verwenden denselben Grundriss und dieselben Planungsdaten.
+Im Tab **Simulation** werden heute und die folgenden sechs Tage mit
+stündlichen Wetterdaten berechnet. Ein Diagramm zeigt pro Stunde die
+Heizlast und den nötigen gemeinsamen Vorlauf. Manuelle FBH- und Wetterfelder
+entfallen; Raumtemperaturen, Grundriss und Planungsdaten entsprechen Live.
 
 Die Außentemperatur wird über Open-Meteo mit dem in Home Assistant eingestellten
 Standort abgefragt: beim Laden der Integration und anschließend alle **30 Minuten**.
 Bei Fehlern bleibt der letzte erfolgreiche Wert erhalten; nach weiteren
 30 Minuten wird erneut abgefragt. Vor dem ersten erfolgreichen Abruf steht **?**.
 Die Integration speichert oder veröffentlicht die Standortkoordinaten nicht.
-Die Simulation liest die Standortbreite aus der vorhandenen Home-Assistant-
-Konfiguration ausschließlich zur Laufzeit. Open-Meteo liefert Wettermodelldaten,
+Die stündlichen Vorhersagen werden über denselben Abruf geladen.
+Open-Meteo liefert Wettermodelldaten,
 keine lokale Sensormessung. Quelle: [Open-Meteo](https://open-meteo.com/).
 
 Derselbe Abruf liefert außerdem Globalstrahlung, direkte Normalstrahlung und
@@ -239,200 +239,138 @@ Ausdrücklich gewünschte Anzeigenamen werden ausschließlich als Raumlabel
 
 ## Simulation der Fußbodenheizung
 
-Dieser Abschnitt ist die zentrale fachliche Modellbeschreibung für Menschen
-und LLMs. `AGENTS.md` verweist verbindlich darauf. Belegte Zahlen und
-Quellen werden ausschließlich aus
-[`planning-data.json`](custom_components/heizlast_ha/planning-data.json)
-gelesen; die ausführbare Modellspezifikation liegt in
-[`simulation-core.ts`](frontend/src/simulation-core.ts) und
-[`thermal-model.ts`](frontend/src/thermal-model.ts). Bei Abweichungen die
-Dokumentation mit den maßgeblichen Quellen abgleichen, keine Datenkopie anlegen.
+Dieser Abschnitt ist die zentrale Modellbeschreibung für Menschen und LLMs.
+Alle belegten Gebäudewerte, Fenster-/Solarfaktoren und bestätigten Heizkreise
+kommen ausschließlich aus
+[`planning-data.json`](custom_components/heizlast_ha/planning-data.json).
+[`thermal-model.ts`](frontend/src/thermal-model.ts) enthält die gemeinsame
+Verlust- und Solarbilanz für Live und Simulation;
+[`simulation-core.ts`](frontend/src/simulation-core.ts) ergänzt das
+FBH-Leistungsmodell und dessen Umkehrung zur nötigen Vorlauftemperatur.
 
-Der Tab **Simulation** vergleicht den Wärmebedarf mit der möglichen
-Fußbodenheizungsleistung bei einem gemeinsamen Raumtemperaturziel. Vorlauf,
-Innentemperatur, Außentemperatur und Monat sind veränderbar; **sonnig** und
-**bewölkt** wählen zwei einstellbare Strahlungsszenarien. Der Startmonat ist
-Januar. Erdgeschoss, Obergeschoss und anklickbare Räume verwenden denselben Planrenderer wie
-**Live**. Pro Raum erscheinen Wärmebedarf, mögliche FBH-Leistung und
-mittlere Leistungsreserve beziehungsweise Defizit. Wärmebedarf und solare
-Gewinne sind Mittelwerte über einen vollständigen Referenztag einschließlich
-Nacht. Die Details zeigen zusätzlich Solarüberschüsse, den größten Wärmebedarf
-und ein mögliches zeitweiliges Leistungsdefizit, aktive Heizfläche und
-angenäherte Bodenoberflächentemperatur bei möglicher FBH-Leistung.
-Eine positive Gesamtbilanz kann Defizite einzelner Räume nicht ausgleichen.
+Der Tab **Simulation** berechnet einen vollständigen Tag in **Stundenschritten**.
+Wählbar sind heute und die folgenden sechs Tage. Das Diagramm zeigt die Summe
+der Raumheizlasten in W auf der linken Achse und den nötigen gemeinsamen Vorlauf
+in °C auf der rechten Achse. Eine Stundentabelle liefert die genauen Werte,
+Außentemperatur und Globalstrahlung. Durch Auswahl einer Stunde zeigen die
+unveränderten EG-/OG-Grundrisse die zugehörigen Raumlasten, solaren Gewinne,
+FBH-Leistungen und Defizite. Die Tagesenergie in kWh ist die Summe der
+stündlichen Bedarfe. Sie bleibt bei Datenlücken unbekannt.
 
-Die Berechnung verwendet die vorhandenen Normheizlasten,
-Auslegungstemperaturen, Raumflächen, Fensterflächen und EnEV-Solarfaktoren
-direkt aus **derselben `planning-data.json`**. Es gibt keinen zweiten
-Simulationsdatensatz. Der dort ergänzte EnEV-Planungsansatz **35/28 °C**
-für Vorlauf/Rücklauf ist auf Seiten 8 und 10 belegt und liefert die
-Starttemperatur und 7 K Spreizung. Er ist keine aktuelle Anlagenmessung.
+Die stündliche Außentemperatur und Sonneneinstrahlung stammen aus demselben
+**Open-Meteo-Abruf** wie die Live-Wetterwerte. Es gibt keine manuellen Wetter-
+oder FBH-Einstellungen und keinen synthetischen Monats-Referenztag mehr in der
+Oberfläche. Der gemeinsame Abruf erfolgt beim Laden und alle 30 Minuten mit
+`current` und `hourly` für Temperatur, GHI, DNI und DHI. Die Abfrage verwendet
+UTC-Zeitstempel, einen vergangenen und acht Vorhersagetage als Randpuffer.
+Der authentifizierte Leseendpunkt `heizlast_ha/get_weather` liefert ausschließlich
+den bereinigten Arbeitsspeicher-Cache, ohne zusätzlichen HTTP-Abruf. Auch Benutzer
+mit Leserechten können ihn nutzen. Die Karte liest den Cache bei Taböffnung,
+auf Anforderung und während der Simulation einmal pro Minute.
 
-Unter **FBH-Annahmen einstellen** sind die nicht belegten Startannahmen einstellbar:
-80 % aktive Fußbodenfläche, angenommene 22 °C Referenz-Raumtemperatur,
-Kennlinienexponent 1,1 und 29 °C maximale Bodenoberfläche. Die anfängliche
-Referenzleistung wird aus der ausdrücklich vorgegebenen **Kalibrierannahme**
-abgeleitet: Bei **−9 °C außen und 22 °C innen** soll die Fußbodenheizung mit
-dem belegten Planungsansatz **35/28 °C** ohne solare Gewinne jeden Raum versorgen.
-Dazu wird der temperaturbezogene Bedarf jeder Rechenzone mit dem gemeinsamen
-Rechenkern aus den unveränderten Planungsdaten berechnet und durch ihre
-angenommene aktive Heizfläche geteilt. Der größte dieser Werte, auf volle
-W/m² aufgerundet, ist die gemeinsame Start-Referenzleistung. Sie beträgt
-mit dem aktuellen Datensatz **55 W/m² bei 35/28/22 °C**. So bestimmt der Raum
-mit dem höchsten Bedarf je aktiver Heizfläche die Kalibrierung; eine günstige
-Gesamtbilanz verdeckt keine unterversorgten Räume. Andere Räume können dabei
-Leistungsreserven haben. Die Annahme ist **keine Anlagenmessung und kein
-Nachweis der tatsächlich verbauten FBH-Leistung**.
+Die [Open-Meteo-Dokumentation](https://open-meteo.com/en/docs) definiert die
+Strahlungswerte als Mittel der **vorangegangenen Stunde**. Für ein Intervall
+00–01 Uhr verwendet die Rechnung deshalb die Strahlung mit Endzeit 01 Uhr und
+das Mittel der Temperaturwerte von 00 und 01 Uhr als angenäherte
+Stundentemperatur. Die Fassadenprojektion nutzt denselben Code wie Live:
+Astral-Sonnenstand am Intervallmittelpunkt, isotroper Himmel und 20 %
+Bodenreflexion. Das ist eine Näherung aus Wettermodelldaten, keine lokale
+Fassadenmessung. Die Tagesgrenzen folgen der Home-Assistant-Zeitzone.
+Zeitumstellungstage enthalten korrekt 23 oder 25 Stunden; doppelte Uhrzeiten
+werden mit ihrem UTC-Versatz unterschieden. Bei Zeitzonen mit halben oder
+Viertelstunden werden überlappende UTC-Stunden anteilig gewichtet; fehlen
+benötigte Nachbarwerte, bleibt das lokale Stundenintervall unbekannt.
 
-Die Kalibrierung setzt nur die Startparameter. Änderungen an Vorlauf, Raum- oder
-Außentemperatur, aktiver Heizfläche oder Referenzleistung kalibrieren die
-Anlage nicht automatisch nach; ungünstigere Bedingungen können wieder
-Raumdefizite erzeugen. Wasser- und Oberflächengrenzen gelten weiterhin.
-Für ein vollständig solarfreies Szenario **Bewölkt** auswählen und unter
-Wetterannahmen die Referenz-Diffusstrahlung bewölkt auf **0 W/m²** setzen.
+Wetterdaten und Standort verbleiben im Arbeitsspeicher. Standortkoordinaten
+kommen ausschließlich aus Home Assistant und werden weder an das Frontend
+noch in Entitätsattribute, Logs oder Planungsdaten übernommen. Fehlende oder
+ungültige Stunden bleiben Lücken; sie werden weder mit null noch mit manuellen
+Wetterannahmen ersetzt. Nach Abruffehlern, Standortänderung oder spätestens
+60 Minuten nach dem letzten Abruf sind die betroffenen Vorhersagedaten
+unverfügbar. Die unabhängige Prüfung und der Werterhalt der bisherigen
+Live-Sensoren bleiben bestehen. Ein Neustart stellt keine Vorhersage wieder her.
 
-Die vom Benutzer bestätigten Heizkreise, Rohrdimension und Verteilerpositionen
-stehen unter `underfloor_heating.installation` in derselben Planungsdatei,
-mit einem getrennten neutralen Quellenbeleg **Benutzerangabe**. Die angegebenen
-Längen gelten als Raumrohrlängen. Hin- und Rückleitungen kommen als geschätzte,
-einstellbare Zusatzlänge hinzu: zunächst **6 m je Kreis insgesamt**, also je
-3 m Hin- und Rückleitung. Diese pauschale Annahme ersetzt kein Aufmaß.
-Der EG-Verteiler befindet sich in der Diele, der OG-Verteiler im Ostzimmer.
-Kreise im jeweiligen Verteilerraum behalten ihre Anbindung in diesem Raum.
-Die übrigen Zuleitungen werden vereinfachend vollständig der jeweiligen Diele
-zugerechnet; der genaue Anteil im Verteiler-/Zielraum ist unbekannt.
-Die OG-Diele besitzt keinen eigenen Heizkreis. Ihre aktive Heizfläche wird aus
-der gesamten zugewiesenen Zuleitungslänge mal einer angenommenen **wirksamen
-Heizstreifenbreite von 0,15 m** geschätzt, gedeckelt auf den aktiven
-Flächenanteil der Planfläche. Diese Breite ist kein belegter Verlegeabstand.
-Räume mit eigenem Heizkreis behalten den einstellbaren aktiven Flächenanteil.
-Wo mehrere Kreise oder Zuleitungen denselben Raum versorgen, teilen sie diese
-Fläche proportional zu ihren Rohrlängen; keine Fläche wird doppelt gezählt.
+Jede Zone verwendet **dieselbe Raumtemperatur wie Live**: genau einen gültigen
+Temperatursensor mit Einheitenumrechnung oder, ohne Sensorzuordnung, den festen
+Raumtemperaturwert. Sensorvorrang und unbekannte/mehrdeutige Messwerte gelten in
+beiden Ansichten gleich. Diese Raumtemperaturen werden für den ausgewählten Tag
+konstant gehalten; ihre tatsächliche Entwicklung wird nicht prognostiziert.
+Fehlt eine Raumtemperatur, kann kein vollständiger Gebäudevorlauf angegeben
+werden. Änderungen der Live-Eingaben oder Sensorwerte aktualisieren die Rechnung.
+Die Simulation verändert weder Zuordnungen noch Sensoren oder Planungsdaten.
 
-Die Simulation rechnet jeden Kreis in der Reihenfolge **Hinleitung → Raum →
-Rückleitung**. Für alle offenen Kreise wird zunächst derselbe, einstellbare
-**Durchfluss von 1,5 l/min je Kreis** angenommen. Er ist weder gemessen noch aus
-der Rohrlänge abgeleitet; ein hydraulischer Abgleich oder Pumpendruck wird
-nicht simuliert. Die Wasserrechnung verwendet näherungsweise 1 kg/l und
-1,163 Wh/(kg K): `Leistung = Durchfluss × 60 × 1,163 × Temperaturabfall`.
-Die [Uponor-Planungshinweise für Rohrsysteme, S. 96](https://brandportal.uponor.com/m/56e67af918404ae3/original/TI-MLCP-Tap-Water-Heating-DE.pdf)
-erläutern diese Wärmekapazität und die Wärmebilanz des Heizwasserstroms.
-Der Innendurchmesser aus Außenmaß und Wandstärke liefert außerdem den
-Rohrwasserinhalt; er dient keiner Aufheizzeit- oder Temperaturprognose.
+Für jede Stunde und jeden Raum gilt die gemeinsame temperaturbezogene
+Heizlastschätzung abzüglich verfügbarer solaren Gewinne, begrenzt auf 0 W.
+Solarüberschüsse bleiben separat und werden nicht auf andere Räume oder
+Nachtstunden angerechnet. Die nötige Vorlauftemperatur wird durch Umkehrung des
+bestehenden Heizkreismodells bestimmt: die niedrigste gemeinsame Temperatur,
+bei der **jeder Raum** seinen Bedarf decken kann. Numerische Intervallsuche und
+Aufrunden auf 0,1 °C verhindern, dass der angezeigte Wert unter dem berechneten
+Bedarf liegt. Eine Gebäudereserve kann keinen unterversorgten Raum ausgleichen.
+Bei Bedarf null steht **Heizung aus**, ohne erfundene Vorlauftemperatur.
+Ist die Leistung trotz Suche bis 60 °C unzureichend, steht **Nicht erreichbar**
+und die Kurve hat dort keinen Vorlaufwert. Raumdefizite werden bei dieser
+Suchgrenze gezeigt. 60 °C ist eine numerische Suchgrenze, keine Betriebsempfehlung;
+die Oberflächengrenze bleibt wirksam.
 
-Die Spreizung am Referenzpunkt bleibt einstellbar und definiert zusammen mit
-der Referenzleistung die Kennlinie, nicht den tatsächlichen Temperaturabfall
-jedes Kreises. Das Wassermodell verwendet die logarithmische
-Heizmittelübertemperatur. Die Referenzleistung wird mit dem Verhältnis dieser
-Übertemperatur zur Referenzübertemperatur potenziert. Leistung und Rücklauf
-werden für jeden Rohrabschnitt gemeinsam aus Kennlinie und Wasserbilanz gelöst;
-der Ausgang eines Abschnitts ist der Eingang des nächsten. Wärme der
-Zuleitungen erscheint ausschließlich in der versorgten Diele beziehungsweise
-im Verteilerraum. Sie wird nicht zusätzlich dem Zielraum gutgeschrieben.
-Die Summe der Kreisleistungen entspricht der Summe der Raumleistungen.
-Bei Vorlauf auf oder unter dem Raumtemperaturziel oder bei Durchfluss null
-wird keine Heizleistung behauptet. Bei positivem Heizbetrieb bleibt der
-Kreisrücklauf über dem Raumtemperaturziel. Die Raumdetails zeigen das Mittel
-der Rückläufe aller beteiligten Kreise und die höchste modellierte
-Segment-Bodenoberfläche; die Wärmestromdichte ist das Flächenmittel.
+Das gemeinsame Modell übernimmt den belegten Vorlauf-/Rücklaufansatz aus dem
+Planungsdatensatz und die bestätigten Raumrohrlängen, Rohrdimension und
+Verteiler-/Zuleitungszonen. Unbekannte Anlagenwerte bleiben **feste Annahmen**
+des Rechenkerns: 80 % aktive Bodenfläche, Exponent 1,1, maximal 29 °C
+Bodenoberfläche, 1,5 l/min je offenem Heizkreis, zusätzlich insgesamt 6 m
+Anbindung je Kreis (3 m hin/3 m zurück) und 0,15 m wirksame Heizstreifenbreite
+in der nur durch Zuleitungen beheizten OG-Diele. Das ist kein belegter
+Verlegeabstand. Diese Werte lassen sich in der Simulation nicht überschreiben.
 
-Ohne übergebene Installationsdaten bleibt der isolierte Rechenkern mit dem
-bisherigen Flächenmodell nutzbar: Aus Referenzleistung und Referenzspreizung
-folgt dann ein konstanter spezifischer Durchfluss. Die feste Dashboardansicht
-verwendet immer die bestätigten Kreise aus dem gemeinsamen Datensatz.
-Die Leistung wird zusätzlich durch die Oberflächenkennlinie
-`q = 8,92 × max(0, Bodenoberfläche − Raumtemperatur)^1,1` begrenzt.
-Im positiven Heizbetrieb darf die berechnete Bodenoberfläche weder die
-eingestellte Grenze noch die logarithmische Heizmitteltemperatur überschreiten. Physikalisch
-unmögliche Referenzkombinationen liefern einen Eingabefehler.
-Diese Oberflächenbeziehung ist fachlich belegt;
-[Uponor erläutert die Basiskennlinie](https://www.uponor.com/de-de/unternehmen/presse/fachbeitraege/fa-uponor-klett-auslegung).
-Die logarithmische Übertemperatur und die üblichen Oberflächengrenzen
-werden in den [Uponor-Planungshinweisen, S. 23](https://brandportal.uponor.com/m/19769cf862d8a19a/original/Uponor-TI-planning-principles-UFHC-GER.pdf)
-erläutert. Die Wasserkennlinie, der Referenzwert, der aktive Flächenanteil
-und die Durchflüsse sind ausdrücklich vereinfachende Modellannahmen.
-Die Rohrlängen beeinflussen die Flächenverteilung auf die einzelnen Kreise und
-Zuleitungen; sie werden nicht unmittelbar in Watt umgerechnet. Eine eigene
-Kennlinie je Verlegeabstand ist nicht belegt. Bodenaufbau, Bodenbelag,
-tatsächlicher Verlegeabstand, Wärmeverluste nach unten und eine
-herstellerspezifische Auslegung bleiben unberücksichtigt.
+Die bestehende Kalibrierannahme bleibt Grundlage der Referenzkennlinie:
+22 °C innen bei −9 °C außen, solarfrei, mit dem belegten Vorlauf/Rücklauf.
+Der höchste Bedarf je angenommener aktiver Raumfläche wird auf volle W/m²
+aufgerundet. Die Referenzleistung wird aus der einzigen Datenquelle hergeleitet,
+nicht als kopierte Raumtabelle hinterlegt. Die Kalibrierung ist keine Messung;
+die Stundenwerte oder Raumtemperaturen kalibrieren die Kennlinie nicht neu.
 
-Die Monatsrechnung verwendet den 15. Tag des gewählten Monats in einem
-Nichtschaltjahr. Sonnenstand und Tageslänge folgen der Standortbreite und der
-Deklination nach den [NOAA-Solarformeln](https://gml.noaa.gov/grad/solcalc/solareqns.PDF).
-96 Zeitpunkte in der Mitte von 15-Minuten-Intervallen decken den vollständigen
-24-Stunden-Tag in Solarzeit ab. Eine geografische Länge oder Zeitzone ist für
-dieses volle Tagesintegral nicht erforderlich. Bei fehlender oder ungültiger
-Home-Assistant-Standortbreite ist eine ausdrückliche Szenarioeingabe erforderlich;
-ein Standort wird nicht stillschweigend angenommen. Die Breite bleibt im
-Arbeitsspeicher und wird weder gespeichert noch in den Planungsdatensatz kopiert.
+Jeder Kreis wird separat als **Hinleitung → Raum → Rückleitung** gerechnet.
+Die Anbindung bleibt bei Kreisen im Verteilerraum dort; die übrigen Leitungen
+werden vereinfachend der jeweiligen Diele zugerechnet. Mehrere Rohrabschnitte
+teilen die aktive Fläche proportional zur Länge. In der OG-Diele ergibt sie
+sich aus Zuleitungslänge × Heizstreifenbreite, gedeckelt auf Planfläche ×
+aktiven Flächenanteil. Flächen und Leitungswärme werden nur einmal bilanziert.
+Jeder Abschnitt verwendet die Live-Raumtemperatur seiner Zone und erhält die
+Ausgangstemperatur des vorherigen Abschnitts. Die Wasserbilanz verwendet
+1 kg/l und 1,163 Wh/(kg K), siehe
+[Uponor-Planungshinweise, S. 96](https://brandportal.uponor.com/m/56e67af918404ae3/original/TI-MLCP-Tap-Water-Heating-DE.pdf).
+Rohrdimension und Länge liefern den Wasserinhalt, keinen Durchfluss oder
+Wärmespeicher. Die Kreise gelten als offen; ein hydraulischer Abgleich und
+Thermostatregelung werden nicht berechnet.
 
-Die Wetterszenarien starten bei einer **Referenz-Sonnenhöhe von 45°** mit
-700 W/m² direkter Normalstrahlung und 100 W/m² diffuser Strahlung bei
-**sonnig**, beziehungsweise ohne direkte Strahlung und mit 150 W/m² diffuser
-Strahlung bei **bewölkt**. Diese einstellbaren Werte gelten nicht rund um die
-Uhr. Die Profilform folgt relativ zum Referenzpunkt der
-[Haurwitz-Beziehung für Globalstrahlung](https://pvlib-python.readthedocs.io/en/stable/reference/generated/pvlib.clearsky.haurwitz.html):
-Für `s = sin(Sonnenhöhe) > 0` und `s₀ = sin(45°)` ist die Dämpfung
-`a = exp(−0,059 × (1/s − 1/s₀))`. Direkte Normalstrahlung wird mit `a`,
-diffuse Strahlung mit `(s/s₀) × a` skaliert. Die Aufteilung in direkte und
-diffuse Strahlung und ihre Übertragung auf bewölktes Wetter sind eigene
-vereinfachende Annahmen; Haurwitz selbst liefert nur Globalstrahlung bei klarem
-Himmel. Unter dem Horizont sind sämtliche Strahlungswerte null.
-20 % Bodenreflexion bleiben eine einstellbare Annahme. Isotroper Himmel,
-Bodenreflexion und Direktstrahlung auf N/O/S/W werden zu jedem Zeitpunkt mit
-den gemeinsamen Raumfensterflächen und Solarfaktoren verknüpft.
+Die Kennlinie verwendet die logarithmische Heizmittelübertemperatur. Die
+Oberflächenbeziehung `q = 8,92 × max(0, Oberfläche − Raumtemperatur)^1,1`
+begrenzt die Wärmeleistung zusätzlich; die Oberfläche darf im Heizbetrieb
+auch die logarithmische Heizmitteltemperatur nicht überschreiten. Die
+[Uponor-Basiskennlinie](https://www.uponor.com/de-de/unternehmen/presse/fachbeitraege/fa-uponor-klett-auslegung)
+und [Planungshinweise, S. 23](https://brandportal.uponor.com/m/19769cf862d8a19a/original/Uponor-TI-planning-principles-UFHC-GER.pdf)
+erläutern diese Beziehungen. Bodenaufbau, Belag, tatsächlicher Verlegeabstand,
+Wärmeverluste nach unten, interne Gewinne und wechselnde Lüftung bleiben
+unberücksichtigt. Ohne positive Heizmittelübertemperatur wird keine Heizleistung
+behauptet. Die Raumoberfläche ist der höchste Segmentwert, der Rücklauf das
+Mittel der beteiligten Kreise.
 
-Der verbleibende Heizbedarf wird **je Zeitschritt** auf mindestens null
-begrenzt und anschließend gemittelt: `Mittel(max(0, Verlust − Solar))`.
-Ein mittäglicher Solarüberschuss wird separat als
-`Mittel(max(0, Solar − Verlust))` ausgewiesen und heizt ohne Speichermodell
-keine Nachtstunden. Deshalb gilt für die Tagesmittel
-`Bedarf = Verlust − solare Gewinne + Solarüberschuss`.
-Der größte zeitweilige Bedarf wird zusätzlich mit der möglichen FBH-Leistung
-verglichen. Die Kennzeichnung von Raumdefiziten verwendet diesen Vergleich,
-damit eine positive mittlere Bilanz einen nächtlichen Leistungsmangel nicht
-verdeckt. Es handelt sich um einen synthetischen sonnigen oder bewölkten Tag
-für den gewählten Monat, keinen Wetterbericht oder klimatologischen
-Monatsmittelwert. Die Außentemperatur bleibt die frei eingegebene, für den
-ganzen Tag konstante Szenariotemperatur. Aktuelle Wetterwerte oder
-Temperatursensoren sind nicht erforderlich. Ergebnisse sind mit **≈** gekennzeichnet.
-
-Die Simulation vergleicht eine Folge stationärer Zeitschritte, keine Prognose
-der Aufheizdauer oder der tatsächlichen Raumtemperatur. Die dargestellte
-Leistungsreserve bezeichnet verfügbare Heizkapazität, keinen gemessenen
-Verbrauch. Thermostatregelung, Wärmespeicherung, interne Gewinne und
-wechselnde Lüftung sind nicht modelliert. Die Eingaben bleiben beim
-Tab- und Geschosswechsel erhalten und werden nicht in Home Assistant
-gespeichert. Sie sind auch für Benutzer mit Leserechten bedienbar und
-verändern weder Sensorwerte noch Sensorzuordnungen.
+Die Kurve ist eine Folge **stationärer Leistungsberechnungen**, keine
+Aufheizzeit-, Raumtemperatur- oder Verbrauchsprognose und keine reale
+Heizungssteuerung. Die mögliche FBH-Leistung ist verfügbare Kapazität.
+Wärmespeicherung und dynamische Regelung werden nicht modelliert; Ergebnisse
+tragen deshalb das Näherungszeichen **≈**.
 
 ### Rechenkern für weitere Simulationen
 
-`frontend/src/thermal-model.ts` enthält die gemeinsamen Verlust- und
-Solargewinnfunktionen für Live-Ansicht und Simulation.
-`frontend/src/simulation-core.ts` ergänzt Strahlungsszenarien und
-Fußbodenheizungsleistung. Beide Module sind reine TypeScript-Funktionen:
-kein DOM, keine Home-Assistant-Verbindung, kein Netzabruf und kein
-Import des projektspezifischen Datensatzes. Der Aufrufer übergibt die
-Planungsdaten und die Szenarioannahmen; die Funktionen verändern sie nicht.
-
-```ts
-import { planningData } from "./planning-types";
-import {
-  defaultSimulationScenario, defaultSimulationParameters, simulateBuilding,
-} from "./simulation-core";
-
-function runScenario(latitudeDeg: number) {
-  const scenario = defaultSimulationScenario(planningData);
-  const parameters = defaultSimulationParameters(planningData);
-  return simulateBuilding(planningData, scenario, parameters, { latitudeDeg });
-}
-```
-
-Das Ergebnis enthält Raumwerte und Summen. Ungültige Eingaben liefern
-Feldfehler und keine scheinbar gültigen Nullwerte. Andere Oberflächen
-können denselben Kern mit eigenen strukturell passenden Eingaben verwenden.
+`simulateHeatingDay(data, hours, temperatures)` nimmt strukturelle Planungsdaten,
+zeitlich zusammenhängende Stunden mit Wetterwerten und eine Temperaturzuordnung
+je Zone entgegen. Das Ergebnis enthält Stundenstatus, Raum- und Kreiswerte,
+Heizlast, nötigen Vorlauf und vollständige Tagesenergie. Der Kern importiert
+weder JSON noch DOM-/HA-APIs, führt keine Netzabrufe aus und verändert seine
+Eingaben nicht. Die bisherigen isolierten Szenariofunktionen bleiben für
+fachliche Kernprüfungen nutzbar; die Dashboardansicht verwendet ausschließlich
+die wetterbasierte Tagesrechnung mit den gemeinsamen festen FBH-Annahmen.
 
 ## Daten und Speicherung
 

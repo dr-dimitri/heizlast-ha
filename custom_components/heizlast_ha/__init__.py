@@ -54,6 +54,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: HeizlastConfigEntry) ->
     hass.data[DOMAIN].pop("dashboard", None)
     async_clear_dashboard_issues(hass)
     hass.data[DOMAIN].pop("project", None)
+    hass.data[DOMAIN].pop("weather", None)
     return True
 
 

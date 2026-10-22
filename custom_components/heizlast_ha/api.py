@@ -64,8 +64,24 @@ async def ws_save_planning_bindings(
     connection.send_result(msg["id"], result)
 
 
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/get_weather"})
+@callback
+def ws_get_weather(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Read the shared weather cache without extra HTTP requests or writes."""
+    weather = hass.data.get(DOMAIN, {}).get("weather")
+    if weather is None:
+        connection.send_error(msg["id"], "not_loaded", "Wetterdaten nicht verfügbar.")
+        return
+    connection.send_result(msg["id"], weather.forecast_snapshot())
+
+
 @callback
 def async_register_api(hass: HomeAssistant) -> None:
     """Register once; handlers look up the active project on every request."""
     websocket_api.async_register_command(hass, ws_get_project)
     websocket_api.async_register_command(hass, ws_save_planning_bindings)
+    websocket_api.async_register_command(hass, ws_get_weather)
