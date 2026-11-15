@@ -28,8 +28,8 @@ const readings = (card: HeizlastGrundrissCard) => [...card.shadowRoot!.querySele
 afterEach(() => { document.body.replaceChildren(); vi.useRealTimers(); });
 
 describe("hourly day simulation in the fixed floor plan", () => {
-  it("shows three hourly chart series without an hourly table or manual weather and FBH fields", async () => {
-    const { card, callWS } = await mount();
+  it("shows four hourly chart series without an hourly table or manual weather and FBH fields", async () => {
+    const { card, callWS, project, weather } = await mount();
     const shape = polygons(card); await press(card, "Simulation");
     expect(polygons(card)).toEqual(shape);
     expect([...card.shadowRoot!.querySelectorAll('input')].map((input) => input.id)).toEqual(["gas-price"]);
@@ -42,9 +42,20 @@ describe("hourly day simulation in the fixed floor plan", () => {
     expect(card.shadowRoot!.querySelector(".outdoor-line")!.getAttribute("d")).toContain("L");
     expect(card.shadowRoot!.querySelectorAll(".outdoor-point")).toHaveLength(24);
     expect(card.shadowRoot!.querySelector(".chart-legend")!.textContent).toContain("Außentemperatur · rechte Achse");
+    expect(card.shadowRoot!.querySelector(".operating-supply-key")!.textContent).toContain("Vorlauf aus Betriebspunkten · rechte Achse");
+    expect(card.shadowRoot!.querySelector(".operating-supply-line")!.getAttribute("d")!.match(/M/g)).toHaveLength(2);
+    expect(card.shadowRoot!.querySelectorAll(".operating-supply-point")).toHaveLength(23);
+    expect(card.shadowRoot!.querySelector(".heating-chart title")!.textContent).toContain("Vorlauf aus Betriebspunkten ≈ 29,3 °C");
+    expect(card.shadowRoot!.querySelector(".operating-supply-value")!.textContent).toBe("≈ 29,3 °C");
+    const hour = simulateHeatingDay(planningData, weather.days[0].hours.slice(0, 1), project.planning_temperatures!).hours[0];
+    const delta = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1, signDisplay: "exceptZero" })
+      .format(hour.requiredSupplyTemperatureC! - hour.operatingSupplyTemperatureC!);
+    expect(card.shadowRoot!.querySelector(".operating-supply-delta")!.textContent).toBe(`${delta} K gegenüber Betriebskurve`);
     card.shadowRoot!.querySelectorAll<SVGElement>(".chart-hit")[12].dispatchEvent(new MouseEvent("click", { bubbles: true })); await settle(card);
     expect(card.shadowRoot!.querySelector<HTMLSelectElement>('select[aria-label="Stunde im Grundriss"]')!.value).toBe("12");
     expect(card.shadowRoot!.querySelector(".curve-summary")!.textContent).toContain("10 °C");
+    expect(card.shadowRoot!.querySelector(".operating-supply-value")!.textContent).toBe("?");
+    expect(card.shadowRoot!.querySelector(".operating-supply-delta")).toBeNull();
     expect(content(card)).toContain("Gebäudewärmebedarf am Tag");
     expect(content(card)).toContain("Raumtemperatur aus Live");
     expect(callWS.mock.calls.map(([message]) => message.type)).toEqual(["heizlast_ha/get_project", "heizlast_ha/get_weather"]);
@@ -116,6 +127,8 @@ describe("hourly day simulation in the fixed floor plan", () => {
     expect(readings(card)).toEqual(Array(5).fill("? / ? / ?"));
     expect(card.shadowRoot!.querySelector(".supply-line")!.getAttribute("d")!.trim()).toBe("");
     expect(card.shadowRoot!.querySelectorAll(".outdoor-point")).toHaveLength(24);
+    expect(card.shadowRoot!.querySelector(".operating-supply-value")!.textContent).toBe("≈ 29,3 °C");
+    expect(card.shadowRoot!.querySelector(".operating-supply-delta")).toBeNull();
   });
 
   it("keeps weather gaps unknown and distinguishes heating off and unreachable from valid temperatures", async () => {
@@ -131,6 +144,8 @@ describe("hourly day simulation in the fixed floor plan", () => {
     expect(outside.every((point) => Number(point.getAttribute("cy")) >= 38 && Number(point.getAttribute("cy")) <= 260)).toBe(true);
     expect(card.shadowRoot!.querySelector(".temperature-tick")!.textContent).toBe("-60");
     expect(card.shadowRoot!.querySelector(".outdoor-line")!.getAttribute("d")!.match(/M/g)).toHaveLength(2);
+    expect(card.shadowRoot!.querySelectorAll(".operating-supply-point")).toHaveLength(20);
+    expect(card.shadowRoot!.querySelector(".operating-supply-line")!.getAttribute("d")!.match(/M/g)).toHaveLength(3);
     expect(card.shadowRoot!.querySelector(".gas-energy")!.textContent).toBe("?");
     expect(card.shadowRoot!.querySelector(".gas-cost")!.textContent).toBe("?");
     await select(card, "Stunde im Grundriss", "2");

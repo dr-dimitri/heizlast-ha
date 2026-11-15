@@ -1,7 +1,7 @@
 # heizlast-ha
 
 Home-Assistant-Integration mit einer interaktiven digitalen Grundrisskarte.
-Version **0.22.0** öffnet den fest implementierten Grundriss direkt in der
+Version **0.23.0** öffnet den fest implementierten Grundriss direkt in der
 HA-Seitenleiste. Erdgeschoss und Obergeschoss zeigen die aus den Werkplänen
 übernommenen Raumkonturen und die belegten Normheizlasten von elf Rechenzonen.
 Räume lassen sich anklicken; rechts stehen Fläche, Auslegungstemperatur,
@@ -23,8 +23,10 @@ Eine Heizungssteuerung ist nicht enthalten.
 
 Im Tab **Simulation** werden heute und die folgenden sechs Tage mit
 stündlichen Wetterdaten berechnet. Ein Diagramm zeigt pro Stunde die
-Heizlast und den nötigen gemeinsamen Vorlauf. Manuelle FBH- und Wetterfelder
-entfallen; Raumtemperaturen, Grundriss und Planungsdaten entsprechen Live.
+Heizlast, den nötigen gemeinsamen Vorlauf und den geschätzten Vorlauf aus vier
+Betriebspunkten. Live zeigt diese Schätzung zur aktuellen Außentemperatur.
+Manuelle FBH- und Wetterfelder entfallen. Raumtemperaturen, Grundriss und
+Planungsdaten entsprechen Live.
 Zusätzlich lässt sich eine Bosch-Wärmepumpe auswählen und ihr Strombedarf mit
 Gas, Netzstromtarif, zeitgleicher PV-Erzeugung und einem angenommenen
 6-kWh-Stromspeicher vergleichen.
@@ -255,15 +257,32 @@ Energieverbrauch der Raumheizung.
 
 Der Tab **Simulation** berechnet einen vollständigen Tag in **Stundenschritten**.
 Wählbar sind heute und die folgenden sechs Tage. Das Diagramm zeigt die
-Gebäudeheizlast nach Solarabzug in W auf der linken Achse sowie den nötigen gemeinsamen Vorlauf
-und die Außentemperatur in °C auf der rechten Achse. Die gemeinsame Temperaturachse
-umfasst auch negative Außentemperaturen. Eine separate Stundenwertliste entfällt.
-Stunden lassen sich im Diagramm oder im Auswahlfeld wählen; Vorlauf und
-Außentemperatur der gewählten Stunde stehen zusätzlich unter dem Diagramm.
+Gebäudeheizlast nach Solarabzug in W auf der linken Achse. Nötiger gemeinsamer
+Vorlauf, Vorlauf aus Betriebspunkten und Außentemperatur teilen sich die rechte
+Achse in °C, die auch negative Temperaturen umfasst. Stunden lassen sich im
+Diagramm oder im Auswahlfeld wählen. Die Temperaturwerte der gewählten Stunde
+stehen zusätzlich unter dem Diagramm.
 Durch Auswahl einer Stunde zeigen die
 unveränderten EG-/OG-Grundrisse die zugehörigen Raumlasten, solaren Gewinne,
 FBH-Leistungen und Defizite. Die Tagesenergie in kWh ist die Summe der
 stündlichen Gebäudebedarfe. Sie bleibt bei Datenlücken unbekannt.
+
+Die Kurve **Vorlauf aus Betriebspunkten** verwendet vier vom Benutzer angegebene
+Paare aus Außen- und Vorlauftemperatur. Die Paare stehen mit neutralem Beleg
+in `planning-data.json` unter `underfloor_heating.operating_points`.
+Eine lineare Ausgleichsgerade über alle vier Werte glättet die Streuung.
+Sie gilt nur im beobachteten Bereich von **0 bis 6 °C** einschließlich der
+Randpunkte. Außerhalb dieses Bereichs oder ohne Außentemperatur bleibt der
+Wert unbekannt. Live setzt die Außentemperatur des Wettersensors ein, die
+Simulation die stündliche Außentemperatur. Sind beide Vorlaufwerte der
+gewählten Stunde verfügbar, zeigt die Simulation die Differenz aus nötigem
+FBH-Vorlauf und geschätztem Betriebsvorlauf in Kelvin.
+
+Zu den Betriebspunkten fehlen begleitende Raum- und Rücklauftemperaturen,
+Durchflüsse und Angaben zur Sonneneinstrahlung. Die Schätzung beschreibt den
+typischen Vorlauf unter dem beobachteten Betrieb. Raumlasten, FBH-Leistung,
+nötiger Vorlauf, Wärmepumpen-COP und Kosten werden über die nachfolgend
+beschriebenen Modelle berechnet.
 
 Die Gebäudebilanz verwendet die belegten Transmissions- und Lüftungsanteile
 der Räume aus dem gemeinsamen Planungsdatensatz. Wie in der vorhandenen
@@ -535,7 +554,8 @@ tragen deshalb das Näherungszeichen **≈**.
 zeitlich zusammenhängende Stunden mit Wetterwerten und eine Temperaturzuordnung
 je Zone entgegen. Das Ergebnis enthält Stundenstatus, Raum- und Kreiswerte,
 Gebäudeheizlast (`heatDemandW`), konservative Raumlastsumme
-(`roomHeatDemandW`), nötigen Vorlauf und vollständige Gebäude-Tagesenergie.
+(`roomHeatDemandW`), nötigen Vorlauf, geschätzten Betriebsvorlauf
+(`operatingSupplyTemperatureC`) und vollständige Gebäude-Tagesenergie.
 Die Zonenwerte bleiben die konservative FBH-Raumrechnung. Der Kern importiert
 weder JSON noch DOM-/HA-APIs, führt keine Netzabrufe aus und verändert seine
 Eingaben nicht. Die bisherigen isolierten Szenariofunktionen bleiben für

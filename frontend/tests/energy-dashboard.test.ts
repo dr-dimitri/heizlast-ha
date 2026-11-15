@@ -16,7 +16,7 @@ const tariffStates = (): Record<string, HassState> => ({
 });
 function day(date = "2026-10-22"): HeatingDay {
   const hours: HeatingHour[] = [10, 11].map((hour) => ({ time: `${date}T${hour}:00:00Z`, status: "covered", outdoorTemperatureC: 2,
-    globalIrradianceWPerM2: 0, heatDemandW: 2910, roomHeatDemandW: 4500, requiredSupplyTemperatureC: 35, zones: [], circuits: [] }));
+    globalIrradianceWPerM2: 0, heatDemandW: 2910, roomHeatDemandW: 4500, requiredSupplyTemperatureC: 35, operatingSupplyTemperatureC: null, zones: [], circuits: [] }));
   return { hours, heatEnergyKWh: 5.82, missingZoneIds: [] };
 }
 const pvFor = (start: string, energy = .5) => ({ status: "available", fetched_at: "2026-10-22T10:00:00Z", expires_at: "2026-10-22T11:00:00Z",
