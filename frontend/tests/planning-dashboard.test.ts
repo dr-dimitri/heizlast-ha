@@ -339,6 +339,18 @@ describe("documented floorplan dashboard", () => {
     card.hass = { ...hass, states: {} }; await settle(card);
     expect(card.shadowRoot!.querySelector(".outdoor-temperature strong")!.textContent).toBe("?");
   });
+  it("estimates the operating supply in Celsius for readers within the observed outdoor range", async () => {
+    const { card, hass } = await mount(empty(), false, { "sensor.weather_actual": outsideSensor("38.3", "°F") });
+    const value = () => card.shadowRoot!.querySelector(".operating-supply strong")!.textContent;
+    expect(value()).toBe("≈ 27,4 °C");
+    expect(card.shadowRoot!.querySelector(".operating-supply p")!.textContent).toContain("4 Beobachtungen bei 0 bis 6 °C außen");
+    card.hass = { ...hass, states: { "sensor.weather_actual": outsideSensor("6") } }; await settle(card);
+    expect(value()).toBe("≈ 26 °C");
+    card.hass = { ...hass, states: { "sensor.weather_actual": outsideSensor("6.1") } }; await settle(card);
+    expect(value()).toBe("?");
+    card.hass = { ...hass, states: {} }; await settle(card);
+    expect(value()).toBe("?");
+  });
   it("persists real sensor assignments for fixed shared zones", async () => {
     const snapshot = empty();
     const { card, callWS } = await mount(snapshot, true, { "sensor.room": sensor("sensor.room"), "sensor.humidity": sensor("sensor.humidity", "55", "humidity") });

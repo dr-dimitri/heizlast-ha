@@ -1,6 +1,6 @@
 import source from "../../custom_components/heizlast_ha/planning-data.json";
 import type { Point } from "./types";
-import type { HeatingInstallation } from "./simulation-core";
+import type { HeatingInstallation, SimulationPlanningData } from "./simulation-core";
 
 export type PlanningFloor = "EG" | "OG";
 export interface HeatZone {
@@ -22,12 +22,12 @@ export interface PlanningData {
   calculation_date: string;
   building: { heat_load_w: number; heated_net_floor_area_m2: number; design_outdoor_temperature_c: number };
   room_heat_load_sum_w: number;
-  underfloor_heating: { design_supply_temperature_c: number; design_return_temperature_c: number; installation: HeatingInstallation };
+  underfloor_heating: SimulationPlanningData["underfloor_heating"] & { installation: HeatingInstallation };
   solar_assumptions: SolarAssumptions;
   zones: HeatZone[];
   shapes: PlanShape[];
   floors: Record<PlanningFloor, { bounds: [number, number, number, number]; stairs: Point[] }>;
-  sources: { building: { document: string; page: number; sheet: string }; climate: { document: string; page: number; sheet: string }; heating: { document: string; pages: number[] }; heating_installation: { document: string; description: string }; solar: { document: string; pages: number[]; section: string }; room_sum: { document: string; page: number; sheet: string }; plans: Record<PlanningFloor, { document: string; page: number; sheet: string }> };
+  sources: { building: { document: string; page: number; sheet: string }; climate: { document: string; page: number; sheet: string }; heating: { document: string; pages: number[] }; heating_installation: { document: string; description: string }; heating_operation?: { document: string; description: string }; solar: { document: string; pages: number[]; section: string }; room_sum: { document: string; page: number; sheet: string }; plans: Record<PlanningFloor, { document: string; page: number; sheet: string }> };
   notes: { room_sum: string; geometry: string; solar: string; heating_installation: string };
 }
 export const planningData = source as unknown as PlanningData;

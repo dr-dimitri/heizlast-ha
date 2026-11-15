@@ -9,6 +9,24 @@
   "underfloor_heating": {
     "design_supply_temperature_c": 35,
     "design_return_temperature_c": 28,
+    "operating_points": [
+      {
+        "outdoor_temperature_c": 0,
+        "supply_temperature_c": 29
+      },
+      {
+        "outdoor_temperature_c": 3.5,
+        "supply_temperature_c": 27.5
+      },
+      {
+        "outdoor_temperature_c": 4.5,
+        "supply_temperature_c": 28
+      },
+      {
+        "outdoor_temperature_c": 6,
+        "supply_temperature_c": 25
+      }
+    ],
     "installation": {
       "pipe_outer_diameter_mm": 16,
       "pipe_wall_thickness_mm": 2,
@@ -1020,6 +1038,10 @@
     "heating_installation": {
       "document": "Benutzerangabe",
       "description": "Heizkreislängen je Rechenzone, Rohrdimension 16 × 2 mm, Verteiler in EG-Diele und OG-Ostzimmer sowie Beheizung der OG-Diele durch Zuleitungen bestätigt."
+    },
+    "heating_operation": {
+      "document": "Benutzerangabe",
+      "description": "Vier im Betrieb beobachtete Paare aus Außen- und Vorlauftemperatur."
     }
   },
   "notes": {

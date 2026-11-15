@@ -5,7 +5,7 @@ import type { HeatingHour } from "../src/simulation-core";
 
 function hour(overrides: Partial<HeatingHour> = {}): HeatingHour {
   return { time: "2026-01-01T00:00:00Z", status: "covered", outdoorTemperatureC: 2, globalIrradianceWPerM2: 0,
-    heatDemandW: 3000, roomHeatDemandW: 3700, requiredSupplyTemperatureC: 35, zones: [], circuits: [], ...overrides };
+    heatDemandW: 3000, roomHeatDemandW: 3700, requiredSupplyTemperatureC: 35, operatingSupplyTemperatureC: null, zones: [], circuits: [], ...overrides };
 }
 
 describe("Bosch Compress 5800i AW 5 OR-S stationary model", () => {

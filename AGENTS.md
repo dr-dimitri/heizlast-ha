@@ -160,7 +160,7 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
 ### Versionierung und Paketinhalt
 
 - `VERSION` ist die zentrale Projektversion im Format `MAJOR.MINOR.PATCH`,
-  aktuell `0.22.0`. Für eine neue Implementierung die Version nach SemVer
+  aktuell `0.23.0`. Für eine neue Implementierung die Version nach SemVer
   erhöhen. Jeder Merge benötigt eine bisher unveröffentlichte Version für das
   verpflichtende HACS-Release; reine Dokumentationsänderungen erhöhen mindestens
   die Patch-Version. CI-Builds erhalten zusätzlich eine eindeutige Buildkennung.
@@ -346,7 +346,8 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   Sensorvorrang, Einheitenumrechnung und unbekannten Werten. Die Simulation
   verändert keine Sensoren, Zuordnungen oder Planungsdaten. Das Diagramm zeigt
   je Stunde Gebäudeheizlast auf der linken Achse sowie nötigen gemeinsamen
-  Vorlauf und Außentemperatur auf derselben rechten Celsiusachse, die auch
+  Vorlauf, Vorlauf aus Betriebspunkten und Außentemperatur auf derselben
+  rechten Celsiusachse, die auch
   negative Werte umfasst. Eine Stundenwertliste gibt es nicht. Auswahl im
   Diagramm oder Stundenfeld zeigt Vorlauf, Außentemperatur und Raumwerte der
   gewählten Stunde. Fehlende Daten bleiben ?, Heizbedarf null
@@ -461,6 +462,18 @@ festgelegt; Versionskommentare bei Aktualisierungen ebenfalls anpassen.
   Gebäudedaten, Konturen, Lasten, Flächen, Fenster, Solarfaktoren, belegter
   Vorlauf/Rücklauf und bestätigte Installation werden ausschließlich aus der
   bestehenden `planning-data.json` gelesen. Keine Kopie für die Simulation anlegen.
+- Vier vom Benutzer angegebene Außen-/Vorlaufpaare stehen mit neutralem Beleg in
+  `underfloor_heating.operating_points`. Live und Simulation verwenden dieselbe
+  lineare Ausgleichsgerade aus `simulation-core.ts` zur Schätzung des Vorlaufs aus
+  den Betriebspunkten. Der gültige Bereich reicht von 0 bis 6 °C einschließlich
+  der Randpunkte. Außerhalb oder ohne Außentemperatur bleibt die Schätzung
+  unbekannt. Live nutzt den Außensensor, die Simulation die stündliche
+  Außentemperatur. Die Simulation zeichnet beide Vorlaufkurven auf derselben
+  Celsiusachse und zeigt bei verfügbaren Werten die Differenz zwischen nötigem
+  FBH-Vorlauf und geschätztem Betriebsvorlauf in Kelvin.
+  Raumtemperaturen, Rücklauf, Durchflüsse und Einstrahlung zu den Betriebspunkten
+  sind unbekannt. Die Heizlasten, FBH-Leistungsprüfung, Vorlauf-Inversion und
+  COP-Schätzung verwenden weiterhin ihre jeweiligen Modellgrundlagen.
 - Die Tagesenergie, Diagramm-Gebäudeheizlast und Gas-/WP-/Kostenvergleiche
   verwenden eine getrennte Gebäudebilanz: je Zone
   `(transmission + 0,5 × ventilation) × Rundungsfaktor`, mit

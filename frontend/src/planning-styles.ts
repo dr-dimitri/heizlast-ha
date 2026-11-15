@@ -25,6 +25,7 @@ export const planningStyles = css`
   .metric strong small { font-size:14px; font-weight:400; color:var(--muted); }
   .metric p { font-size:11px; color:var(--muted); }
   .metric a { color:var(--accent); }
+  .live-metrics { grid-template-columns:repeat(auto-fit,minmax(min(100%, 135px),1fr)); }
   .simulation-metrics { grid-template-columns:repeat(5,minmax(0,1fr)); }
   .simulation-metrics .metric strong { font-size:22px; }
   .toolbar { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom:16px; }
@@ -72,21 +73,25 @@ export const planningStyles = css`
   .heating-chart text { fill:currentColor; font:11px system-ui,sans-serif; }
   .chart-grid { stroke:var(--line); stroke-width:1; }
   .chart-selection { stroke:var(--muted); stroke-dasharray:3 4; }
-  .load-line,.supply-line,.outdoor-line { fill:none; stroke-width:2.5; }
+  .load-line,.supply-line,.outdoor-line,.operating-supply-line { fill:none; stroke-width:2.5; }
   .load-line { stroke:var(--accent); }
   .supply-line { stroke:var(--warning-color,#b56a16); stroke-dasharray:6 3; }
   .outdoor-line { stroke:var(--success-color,#2e8455); stroke-dasharray:2 4; }
+  .operating-supply-line { stroke:var(--purple-color,#8754b4); stroke-dasharray:9 4 2 4; }
   .load-point { fill:var(--accent); }
   .supply-point { fill:var(--warning-color,#b56a16); }
   .outdoor-point { fill:var(--success-color,#2e8455); }
+  .operating-supply-point { fill:var(--purple-color,#8754b4); }
   .heating-chart .load-label { fill:var(--accent); }
   .chart-hit { fill:transparent; cursor:pointer; }
   .chart-legend { display:flex; flex-wrap:wrap; gap:8px 20px; }
   .chart-legend span:first-child { color:var(--accent); }
   .chart-legend span:nth-child(2) { color:var(--warning-color,#b56a16); }
   .chart-legend span:nth-child(3) { color:var(--success-color,#2e8455); }
+  .chart-legend .operating-supply-key { color:var(--purple-color,#8754b4); }
   .curve-summary { display:flex; flex-wrap:wrap; gap:16px 36px; margin:18px 0; font-size:13px; }
   .curve-summary strong { display:block; font-size:24px; margin-top:6px; }
+  .curve-summary small { display:block; color:var(--muted); margin-top:4px; }
   .gas-estimate { border-top:1px solid var(--line); padding-top:18px; margin-top:18px; }
   .gas-price-label { display:block; font-size:12px; margin-bottom:7px; }
   #gas-price { width:200px; max-width:100%; border:1px solid var(--line); background:var(--surface); color:var(--primary-text-color); border-radius:8px; padding:10px; }

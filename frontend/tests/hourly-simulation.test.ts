@@ -3,13 +3,60 @@ import { describe, expect, it } from "vitest";
 import { planningData } from "../src/planning-types";
 import { buildingDesignHeatLossZones, heatLossW, solarGainsFromFacadesW } from "../src/thermal-model";
 import { estimateHeatPumpDay } from "../src/heat-pump";
-import { estimateGasUse, simulateHeatingDay, simulateBuilding, defaultSimulationParameters, defaultSimulationScenario, type HourlyWeather } from "../src/simulation-core";
+import { estimateGasUse, operatingSupplyTemperatureC, simulateHeatingDay, simulateBuilding, defaultSimulationParameters, defaultSimulationScenario, type HourlyWeather } from "../src/simulation-core";
 
 const temperatures = () => Object.fromEntries(planningData.zones.map((zone) => [zone.id, 22]));
 const weather = (outdoorTemperatureC = 0, solar = 0): HourlyWeather[] => Array.from({ length: 24 }, (_, hour) => ({
   time: new Date(Date.UTC(2026, 0, 1, hour)).toISOString(), outdoorTemperatureC,
   globalIrradianceWPerM2: solar, facadeIrradiance: { N: solar / 4, E: solar / 2, S: solar, W: solar / 2 },
 }));
+
+describe("operating supply reference", () => {
+  it("fits all four supplied observations without changing the measured values", () => {
+    expect(planningData.sources.heating_operation?.document).toBe("Benutzerangabe");
+    const points = planningData.underfloor_heating.operating_points!;
+    expect(points.map(({ outdoor_temperature_c, supply_temperature_c }) => [outdoor_temperature_c, supply_temperature_c]))
+      .toEqual([[0, 29], [3.5, 27.5], [4.5, 28], [6, 25]]);
+    const before = JSON.stringify(points);
+
+    for (const [outdoor, expected] of [[0, 29.3493589744], [3.5, 27.375], [4.5, 26.8108974359], [6, 25.9647435897]]) {
+      expect(operatingSupplyTemperatureC(planningData, outdoor)).toBeCloseTo(expected, 8);
+    }
+    expect(JSON.stringify(points)).toBe(before);
+  });
+
+  it("requires valid observations with different outdoor temperatures and does not extrapolate", () => {
+    for (const outdoor of [undefined, null, NaN, Infinity, -0.001, 6.001]) {
+      expect(operatingSupplyTemperatureC(planningData, outdoor)).toBeNull();
+    }
+    const points = planningData.underfloor_heating.operating_points!;
+    for (const operating_points of [undefined, [], points.slice(0, 1), [points[0], points[0]],
+      [points[0], { ...points[1], supply_temperature_c: NaN }],
+      [points[0], { ...points[1], outdoor_temperature_c: -274 }]]) {
+      const data = { underfloor_heating: { ...planningData.underfloor_heating, operating_points } };
+      expect(operatingSupplyTemperatureC(data, 0)).toBeNull();
+    }
+  });
+
+  it("keeps the hourly reference independent of room balance, weather gaps, and heat-pump estimates", () => {
+    const dataWithoutPoints = { ...planningData, underfloor_heating: { ...planningData.underfloor_heating, operating_points: undefined } };
+    const inputs = weather(4.5).slice(0, 1), rooms = temperatures();
+    const baseline = simulateHeatingDay(dataWithoutPoints, inputs, rooms);
+    const withReference = simulateHeatingDay(planningData, inputs, rooms);
+    const reference = operatingSupplyTemperatureC(planningData, 4.5);
+    expect(withReference.hours[0]).toEqual({ ...baseline.hours[0], operatingSupplyTemperatureC: reference });
+    expect(withReference.heatEnergyKWh).toBe(baseline.heatEnergyKWh);
+    expect(estimateHeatPumpDay(withReference)).toEqual(estimateHeatPumpDay(baseline));
+
+    expect(simulateHeatingDay(planningData, inputs, {}).hours[0]).toMatchObject({
+      status: "missing_temperature", requiredSupplyTemperatureC: null, operatingSupplyTemperatureC: reference,
+    });
+    expect(simulateHeatingDay(planningData, [{ ...inputs[0], facadeIrradiance: undefined }], rooms).hours[0]).toMatchObject({
+      status: "missing_weather", requiredSupplyTemperatureC: null, operatingSupplyTemperatureC: reference,
+    });
+    expect(simulateHeatingDay(planningData, [{ ...inputs[0], outdoorTemperatureC: undefined }], rooms).hours[0].operatingSupplyTemperatureC).toBeNull();
+  });
+});
 
 describe("weather-driven hourly heating curve", () => {
   it("matches the documented building design load separately from conservative room sizing", () => {
